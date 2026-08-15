@@ -21,10 +21,10 @@ function Brand() {
   return (
     <div className="flex items-center gap-2.5">
       <span className="btn-primary flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold">
-        AS
+        OT
       </span>
       <span className="text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">
-        AI Shorts
+        Останній Токен
       </span>
     </div>
   );
