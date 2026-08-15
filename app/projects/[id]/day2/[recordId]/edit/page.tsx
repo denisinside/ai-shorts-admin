@@ -1,8 +1,15 @@
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase";
 import { deleteDay2Plan } from "@/app/actions/day2";
 import Day2Form from "@/components/Day2Form";
 import type { Day2Plan } from "@/lib/day-tables";
+import { Card } from "@/components/ui/Card";
+import { ConfirmAction } from "@/components/ui/ConfirmAction";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { TrashIcon } from "@/components/ui/icons";
+
+export const metadata: Metadata = { title: "Редагування · День 2" };
 
 export default async function EditDay2Page({
   params,
@@ -24,23 +31,31 @@ export default async function EditDay2Page({
   if (!record) notFound();
 
   return (
-    <div className="max-w-2xl rounded-2xl bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-900">
-          Edit Day 2 · Plan record
-        </h2>
-        <form action={deleteDay2Plan.bind(null, id, recordId)}>
-          <button
-            type="submit"
-            className="text-sm font-medium text-red-500 hover:text-red-600"
-          >
-            Delete
-          </button>
-        </form>
-      </div>
-      <div className="mt-6">
+    <div className="mx-auto max-w-2xl space-y-6">
+      <PageHeader
+        backHref={`/projects/${id}`}
+        backLabel="До проєкту"
+        eyebrow="День 2 · План"
+        title="Редагування запису"
+        actions={
+          <ConfirmAction
+            action={deleteDay2Plan.bind(null, id, recordId)}
+            title="Видалити план?"
+            description="Запис буде видалено назавжди. Дію не можна скасувати."
+            trigger={
+              <>
+                <TrashIcon className="h-4 w-4" />
+                Видалити
+              </>
+            }
+            triggerVariant="danger"
+            triggerSize="sm"
+          />
+        }
+      />
+      <Card className="p-5 sm:p-6">
         <Day2Form projectId={id} record={record} />
-      </div>
+      </Card>
     </div>
   );
 }

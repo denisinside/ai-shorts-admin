@@ -1,4 +1,9 @@
+import type { Metadata } from "next";
 import Day2Form from "@/components/Day2Form";
+import { Card } from "@/components/ui/Card";
+import { PageHeader } from "@/components/ui/PageHeader";
+
+export const metadata: Metadata = { title: "Новий запис · День 2" };
 
 export default async function NewDay2Page({
   params,
@@ -8,13 +13,16 @@ export default async function NewDay2Page({
   const { id } = await params;
 
   return (
-    <div className="max-w-2xl rounded-2xl bg-white p-6 shadow-sm">
-      <h2 className="text-lg font-semibold text-gray-900">
-        New Day 2 · Plan record
-      </h2>
-      <div className="mt-6">
+    <div className="mx-auto max-w-2xl space-y-6">
+      <PageHeader
+        backHref={`/projects/${id}`}
+        backLabel="До проєкту"
+        eyebrow="День 2 · План"
+        title="Новий запис"
+      />
+      <Card className="p-5 sm:p-6">
         <Day2Form projectId={id} />
-      </div>
+      </Card>
     </div>
   );
 }

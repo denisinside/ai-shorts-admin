@@ -6,10 +6,18 @@
 export type Trend = {
   // Dify pipeline shape
   title?: string;
-  format?: string;
+  /** Буває рядком, а буває списком пунктів — залежить від гілки пайплайну. */
+  format?: string | string[];
   hashtags?: string[];
   hook_idea?: string;
   description?: string;
+  /** Кому адресована стаття — заповнює скіл blog-trends-research. */
+  audience?: string;
+  /** Тема не підтверджена джерелами; поруч має бути verification_note. */
+  needs_verification?: boolean;
+  verification_note?: string | null;
+  /** Суміжна категорія, якщо пошук довелося розширити на рівень вище. */
+  broader_category?: string | null;
   // Legacy seed shape
   format_name?: string;
   why_it_works?: string;
@@ -18,13 +26,48 @@ export type Trend = {
   source_url?: string;
 };
 
+// jsonb-поля з пайплайну приходять непередбачувано: то масивом, то обʼєктом,
+// то рядком із JSON усередині (подвійне кодування на боці Dify). Тому в типах
+// вони unknown, а нормалізація — через хелпери нижче.
 export type Day1Trends = {
   id: string;
   project_id: string;
   run_id: string;
-  trends: Trend[] | null;
+  trends: unknown;
   sources: unknown;
 };
+
+/** Розгортає рядок із JSON; усе інше повертає як є. */
+export function parseMaybeJson(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+/** Масив або порожній масив — ніколи не кидає на несподіваній формі даних. */
+export function toArray(value: unknown): unknown[] {
+  const parsed = parseMaybeJson(value);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+export function toTrends(value: unknown): Trend[] {
+  const parsed = parseMaybeJson(value);
+  if (Array.isArray(parsed)) return parsed as Trend[];
+  // Пайплайн іноді віддає один тренд обʼєктом, а не масивом з одного елемента
+  if (parsed && typeof parsed === "object") return [parsed as Trend];
+  return [];
+}
+
+/**
+ * Значення jsonb для textarea у формі. Подвійно закодований JSON розгортається,
+ * інакше адмін бачив би поле у лапках і псував дані при збереженні.
+ */
+export function toJsonText(value: unknown): string {
+  return JSON.stringify(parseMaybeJson(value) ?? [], null, 2);
+}
 
 export type Day2Plan = {
   id: string;

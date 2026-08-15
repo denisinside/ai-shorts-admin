@@ -1,22 +1,30 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Ambient from "@/components/Ambient";
 import Sidebar from "@/components/Sidebar";
-import Topbar from "@/components/Topbar";
 import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
-  subsets: ["latin"],
+  subsets: ["latin", "cyrillic"],
 });
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
-  subsets: ["latin"],
+  subsets: ["latin", "cyrillic"],
 });
 
 export const metadata: Metadata = {
-  title: "AI Shorts Admin",
-  description: "Admin panel for AI Shorts",
+  title: {
+    default: "AI Shorts Admin",
+    template: "%s · AI Shorts",
+  },
+  description: "Адмінпанель контент-пайплайну AI Shorts",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0a0c12",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({
@@ -26,15 +34,20 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="uk"
+      // Скрипт у <Ambient /> дописує сюди клас `refract` ще до гідратації —
+      // для React це розбіжність атрибута, хоча вона навмисна
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full bg-gray-100">
+      <body className="min-h-full">
+        <Ambient />
         <Sidebar />
-        <div className="flex min-h-screen flex-1 flex-col">
-          <Topbar />
-          <main className="flex-1 px-8 pb-8">{children}</main>
-        </div>
+        <main className="min-h-screen md:pl-[17rem]">
+          <div className="mx-auto w-full max-w-6xl px-4 pb-20 pt-6 md:px-8 md:pt-9">
+            {children}
+          </div>
+        </main>
       </body>
     </html>
   );

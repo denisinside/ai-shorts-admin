@@ -73,4 +73,7 @@ export async function deleteProject(id: string) {
   }
 
   revalidatePath("/");
+  // Видаляти можна і зі сторінки редагування проєкту — там після видалення
+  // залишатися нема на чому.
+  redirect("/");
 }

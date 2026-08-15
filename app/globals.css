@@ -1,10 +1,531 @@
 @import "tailwindcss";
 
-@theme inline {
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ===========================================================================
+   ТОКЕНИ
+   Dark-first. Усі кольори в OKLCH: кроки світлості перцептивно рівні, а
+   прозорі домішки (color-mix / Tailwind-синтаксис bg-arc/12) не зсувають тон.
+   =========================================================================== */
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  /* Ґрунт */
+  --color-abyss: oklch(11% 0.012 265);
+  --color-void: oklch(14.5% 0.014 265);
+  --color-surface: oklch(22% 0.016 265);
+  --color-surface-2: oklch(27% 0.018 265);
+
+  /* Текст */
+  --color-ink: oklch(97% 0.005 265);
+  --color-ink-muted: oklch(77% 0.012 265);
+  --color-ink-faint: oklch(64% 0.014 265);
+
+  /* Акцент — лосось. Теплий тон поверх холодного графітового ґрунту:
+     контраст температур робить акцент помітним без високої насиченості. */
+  --color-arc: oklch(74% 0.125 33);
+  --color-arc-deep: oklch(63% 0.145 28);
+
+  /* Семантика статусів.
+     danger навмисно зсунутий у бік малинового (hue 15) і насиченіший за
+     акцент — інакше «Видалити» зливалося б із лососевим за півтону. */
+  --color-ok: oklch(76% 0.15 160);
+  --color-warn: oklch(80% 0.14 80);
+  --color-danger: oklch(65% 0.2 15);
+  --color-plum: oklch(70% 0.15 305);
 }
 
-body {
-  font-family: Arial, Helvetica, sans-serif;
+:root {
+  /* Шкала висоти: чим вище шар, тим сильніше розмиття й слабша щільність.
+     L1 — картка контенту, L2 — плаваюча навігація, L3 — оверлей. */
+  --blur-1: 14px;
+  --blur-2: 26px;
+  --blur-3: 44px;
+
+  /* Фаски. Саме верхній відблиск читається оком як «скло», не розмиття. */
+  --edge: color-mix(in oklab, white 9%, transparent);
+  --edge-lit: color-mix(in oklab, white 17%, transparent);
+  --edge-dark: color-mix(in oklab, black 26%, transparent);
+
+  /* Пружина для натискань — легкий перельот, як в iOS */
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --ease-out: cubic-bezier(0.22, 0.8, 0.32, 1);
+
+  /* Відтінок амбієнтного фону; сторінки можуть перевизначати */
+  --ambient-1: var(--color-arc);
+  --ambient-2: var(--color-plum);
+}
+
+@layer base {
+  :root {
+    /* Робить нативні контроли (select, чекбокс, скролбари) темними */
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: var(--color-abyss);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Цифри в таблицях мають стояти в колонку */
+  table,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-arc) 35%, transparent);
+    color: var(--color-ink);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, white 14%, transparent) transparent;
+  }
+
+  /* Фокус-кільце, помітне поверх скла. Поля вводу мають власне (див. .field) */
+  :where(a, button, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-arc);
+    outline-offset: 2px;
+    border-radius: 0.75rem;
+  }
+
+  /* Нативний список select у Windows-Chrome не успадковує color-scheme */
+  option {
+    background: var(--color-surface);
+    color: var(--color-ink);
+  }
+}
+
+@layer components {
+  /* -------------------------------------------------------------------------
+     СКЛО
+     Рецепт: напівпрозора підкладка + вертикальний градієнт світла зверху вниз
+     + 1px фаска + внутрішній відблиск. backdrop-filter — Baseline з 09.2024.
+     ------------------------------------------------------------------------- */
+  .glass {
+    position: relative;
+    border: 1px solid var(--edge);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, white 6%, transparent) 0%,
+        color-mix(in oklab, white 1.5%, transparent) 45%,
+        transparent 100%
+      ),
+      color-mix(in oklab, var(--color-surface) 55%, transparent);
+    box-shadow:
+      inset 0 1px 0 var(--edge-lit),
+      inset 0 -1px 0 var(--edge-dark),
+      0 10px 30px -14px oklch(0% 0 0 / 0.65);
+    -webkit-backdrop-filter: blur(var(--blur-1)) saturate(170%);
+    backdrop-filter: blur(var(--blur-1)) saturate(170%);
+  }
+
+  /* L2 — плаваюча навігація: сильніше розмиття, менша щільність, глибша тінь */
+  .glass-float {
+    border: 1px solid var(--edge);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, white 7%, transparent) 0%,
+        color-mix(in oklab, white 2%, transparent) 50%,
+        transparent 100%
+      ),
+      color-mix(in oklab, var(--color-surface) 42%, transparent);
+    box-shadow:
+      inset 0 1px 0 var(--edge-lit),
+      inset 0 -1px 0 var(--edge-dark),
+      0 18px 48px -20px oklch(0% 0 0 / 0.8);
+    -webkit-backdrop-filter: blur(var(--blur-2)) saturate(180%);
+    backdrop-filter: blur(var(--blur-2)) saturate(180%);
+  }
+
+  /* L3 — модалки й меню: щільніше, щоб текст під ними не заважав читати */
+  .glass-overlay {
+    border: 1px solid var(--edge-lit);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, white 8%, transparent) 0%,
+        transparent 60%
+      ),
+      color-mix(in oklab, var(--color-surface) 78%, transparent);
+    box-shadow:
+      inset 0 1px 0 var(--edge-lit),
+      0 32px 64px -24px oklch(0% 0 0 / 0.9);
+    -webkit-backdrop-filter: blur(var(--blur-3)) saturate(180%);
+    backdrop-filter: blur(var(--blur-3)) saturate(180%);
+  }
+
+  /* Заломлення — лише прогресивне покращення для Chromium.
+     Клас .refract вішає скрипт у layout за наявністю navigator.userAgentData
+     (цей API є тільки в Chromium). Через @supports детект ненадійний: Safari
+     повідомляє про підтримку url() в backdrop-filter, але не малює ефект. */
+  .refract .glass-float {
+    -webkit-backdrop-filter: url("#lg-refract") blur(var(--blur-2)) saturate(180%);
+    backdrop-filter: url("#lg-refract") blur(var(--blur-2)) saturate(180%);
+  }
+
+  .refract .btn-glass:not(:disabled) {
+    -webkit-backdrop-filter: url("#lg-refract") blur(var(--blur-1)) saturate(180%);
+    backdrop-filter: url("#lg-refract") blur(var(--blur-1)) saturate(180%);
+  }
+
+  /* -------------------------------------------------------------------------
+     КНОПКИ
+     ------------------------------------------------------------------------- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.875rem;
+    border: 1px solid transparent;
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      transform 0.14s var(--ease-spring),
+      background-color 0.18s var(--ease-out),
+      box-shadow 0.18s var(--ease-out),
+      border-color 0.18s var(--ease-out),
+      color 0.18s var(--ease-out),
+      opacity 0.18s var(--ease-out);
+  }
+
+  .btn:active:not(:disabled) {
+    transform: scale(0.965);
+  }
+
+  .btn:disabled,
+  .btn[aria-disabled="true"] {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  .btn-sm {
+    border-radius: 0.75rem;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+  }
+
+  .btn-icon {
+    padding: 0.5rem;
+    border-radius: 0.75rem;
+  }
+
+  /* Основна дія — суцільний акцент із темним текстом, як system-кнопка iOS */
+  .btn-primary {
+    background-image: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--color-arc) 88%, white 12%),
+      var(--color-arc-deep)
+    );
+    color: oklch(18% 0.03 30);
+    border-color: color-mix(in oklab, white 22%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 40%, transparent),
+      0 8px 22px -10px color-mix(in oklab, var(--color-arc) 75%, transparent);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 45%, transparent),
+      0 10px 28px -10px color-mix(in oklab, var(--color-arc) 85%, transparent);
+  }
+
+  /* Вторинна дія — власне «рідке скло» */
+  .btn-glass {
+    border-color: var(--edge);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, white 9%, transparent),
+        color-mix(in oklab, white 2%, transparent)
+      ),
+      color-mix(in oklab, var(--color-surface) 45%, transparent);
+    color: var(--color-ink);
+    box-shadow:
+      inset 0 1px 0 var(--edge-lit),
+      inset 0 -1px 0 var(--edge-dark),
+      0 6px 18px -10px oklch(0% 0 0 / 0.7);
+    -webkit-backdrop-filter: blur(var(--blur-1)) saturate(180%);
+    backdrop-filter: blur(var(--blur-1)) saturate(180%);
+  }
+
+  .btn-glass:hover:not(:disabled) {
+    border-color: var(--edge-lit);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, white 14%, transparent),
+        color-mix(in oklab, white 4%, transparent)
+      ),
+      color-mix(in oklab, var(--color-surface) 55%, transparent);
+  }
+
+  .btn-ghost {
+    color: var(--color-ink-muted);
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    background: color-mix(in oklab, white 7%, transparent);
+    color: var(--color-ink);
+  }
+
+  .btn-danger {
+    border-color: color-mix(in oklab, var(--color-danger) 32%, transparent);
+    background: color-mix(in oklab, var(--color-danger) 14%, transparent);
+    color: var(--color-danger);
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--color-danger) 24%, transparent);
+    color: oklch(96% 0.02 22);
+  }
+
+  /* -------------------------------------------------------------------------
+     ПОЛЯ ВВОДУ
+     ------------------------------------------------------------------------- */
+  .field {
+    width: 100%;
+    border-radius: 0.875rem;
+    border: 1px solid color-mix(in oklab, white 10%, transparent);
+    background: color-mix(in oklab, var(--color-void) 65%, transparent);
+    padding: 0.625rem 0.875rem;
+    font-size: 0.875rem;
+    line-height: 1.375rem;
+    color: var(--color-ink);
+    box-shadow: inset 0 1px 2px oklch(0% 0 0 / 0.35);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    transition:
+      border-color 0.18s var(--ease-out),
+      box-shadow 0.18s var(--ease-out),
+      background-color 0.18s var(--ease-out);
+  }
+
+  .field::placeholder {
+    color: var(--color-ink-faint);
+  }
+
+  .field:hover:not(:disabled) {
+    border-color: color-mix(in oklab, white 17%, transparent);
+  }
+
+  .field:focus {
+    outline: none;
+    border-color: color-mix(in oklab, var(--color-arc) 65%, transparent);
+    background: color-mix(in oklab, var(--color-void) 80%, transparent);
+    box-shadow:
+      inset 0 1px 2px oklch(0% 0 0 / 0.3),
+      0 0 0 3px color-mix(in oklab, var(--color-arc) 22%, transparent);
+  }
+
+  .field-invalid,
+  .field[aria-invalid="true"] {
+    border-color: color-mix(in oklab, var(--color-danger) 55%, transparent);
+  }
+
+  .field-select {
+    appearance: none;
+    padding-right: 2.25rem;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23a0a8b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E"),
+      linear-gradient(color-mix(in oklab, var(--color-void) 65%, transparent), color-mix(in oklab, var(--color-void) 65%, transparent));
+    background-repeat: no-repeat;
+    background-position:
+      right 0.75rem center,
+      0 0;
+    background-size:
+      0.75rem,
+      auto;
+  }
+
+  .field-mono {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    tab-size: 2;
+  }
+
+  /* -------------------------------------------------------------------------
+     ІНШЕ
+     ------------------------------------------------------------------------- */
+  .pressable {
+    transition: transform 0.14s var(--ease-spring);
+  }
+
+  .pressable:active {
+    transform: scale(0.97);
+  }
+
+  .divider {
+    border-color: color-mix(in oklab, white 8%, transparent);
+  }
+
+  /* Амбієнтний фон. Зернистість зверху прибирає бендінг градієнтів на темному —
+     на 8-бітних панелях без неї видно «кільця». */
+  .ambient {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        60rem 40rem at 10% -12%,
+        color-mix(in oklab, var(--ambient-1) 20%, transparent),
+        transparent 62%
+      ),
+      radial-gradient(
+        46rem 30rem at 104% 4%,
+        color-mix(in oklab, var(--ambient-2) 16%, transparent),
+        transparent 58%
+      ),
+      radial-gradient(
+        58rem 44rem at 48% 118%,
+        color-mix(in oklab, var(--color-arc-deep) 14%, transparent),
+        transparent 60%
+      ),
+      var(--color-abyss);
+    transition: background 0.6s var(--ease-out);
+  }
+
+  .ambient::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0.04;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* Нативний <dialog>: фокус-пастка, ESC і inert-фон — безкоштовно від браузера */
+  .dialog {
+    margin: auto;
+    max-width: min(30rem, calc(100vw - 2rem));
+    border: none;
+    padding: 0;
+    background: transparent;
+    color: var(--color-ink);
+  }
+
+  .dialog::backdrop {
+    background: oklch(8% 0.01 265 / 0.55);
+    -webkit-backdrop-filter: blur(8px) saturate(120%);
+    backdrop-filter: blur(8px) saturate(120%);
+  }
+
+  .dialog[open] {
+    animation: dialog-in 0.22s var(--ease-spring);
+  }
+
+  @keyframes dialog-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      color-mix(in oklab, white 5%, transparent) 25%,
+      color-mix(in oklab, white 11%, transparent) 37%,
+      color-mix(in oklab, white 5%, transparent) 63%
+    );
+    background-size: 400% 100%;
+    animation: shimmer 1.6s ease-in-out infinite;
+    border-radius: 0.5rem;
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: 100% 0;
+    }
+    to {
+      background-position: 0 0;
+    }
+  }
+}
+
+/* ===========================================================================
+   ДОСТУПНІСТЬ І ЗАПАСНІ ВАРІАНТИ
+   =========================================================================== */
+
+/* Браузер без backdrop-filter — робимо поверхні щільними, щоб текст не плив */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass,
+  .glass-float,
+  .glass-overlay,
+  .btn-glass,
+  .field {
+    background: var(--color-surface);
+  }
+}
+
+/* Користувач вимкнув прозорість в ОС — прибираємо скло повністю */
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-float,
+  .glass-overlay,
+  .btn-glass,
+  .field {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--color-surface);
+  }
+
+  .ambient {
+    background: var(--color-abyss);
+  }
+
+  .ambient::after {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .btn:active:not(:disabled),
+  .pressable:active {
+    transform: none;
+  }
+}
+
+/* Друк адмінки — без скла й фону */
+@media print {
+  .ambient,
+  .no-print {
+    display: none !important;
+  }
+
+  .glass,
+  .glass-float {
+    background: white;
+    color: black;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
 }

@@ -1,8 +1,15 @@
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase";
 import { deleteDay1Trends } from "@/app/actions/day1";
 import Day1Form from "@/components/Day1Form";
 import type { Day1Trends } from "@/lib/day-tables";
+import { Card } from "@/components/ui/Card";
+import { ConfirmAction } from "@/components/ui/ConfirmAction";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { TrashIcon } from "@/components/ui/icons";
+
+export const metadata: Metadata = { title: "Редагування · День 1" };
 
 export default async function EditDay1Page({
   params,
@@ -24,23 +31,31 @@ export default async function EditDay1Page({
   if (!record) notFound();
 
   return (
-    <div className="max-w-2xl rounded-2xl bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-900">
-          Edit Day 1 · Trends record
-        </h2>
-        <form action={deleteDay1Trends.bind(null, id, recordId)}>
-          <button
-            type="submit"
-            className="text-sm font-medium text-red-500 hover:text-red-600"
-          >
-            Delete
-          </button>
-        </form>
-      </div>
-      <div className="mt-6">
+    <div className="mx-auto max-w-2xl space-y-6">
+      <PageHeader
+        backHref={`/projects/${id}`}
+        backLabel="До проєкту"
+        eyebrow="День 1 · Тренди"
+        title="Редагування запису"
+        actions={
+          <ConfirmAction
+            action={deleteDay1Trends.bind(null, id, recordId)}
+            title="Видалити тренди?"
+            description="Запис буде видалено назавжди. Дію не можна скасувати."
+            trigger={
+              <>
+                <TrashIcon className="h-4 w-4" />
+                Видалити
+              </>
+            }
+            triggerVariant="danger"
+            triggerSize="sm"
+          />
+        }
+      />
+      <Card className="p-5 sm:p-6">
         <Day1Form projectId={id} record={record} />
-      </div>
+      </Card>
     </div>
   );
 }
