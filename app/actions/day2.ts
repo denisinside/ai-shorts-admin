@@ -3,7 +3,12 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase";
-import { parseJsonField } from "@/lib/json-field";
+import {
+  parseJsonField,
+  parseOptionalIndex,
+  parseOptionalUuid,
+  parseRequiredJsonField,
+} from "@/lib/json-field";
 import type { FormState } from "@/lib/form-state";
 
 type BuildResult =
@@ -17,16 +22,44 @@ function buildPayload(formData: FormData): BuildResult {
     approved_by: String(formData.get("approved_by") ?? ""),
     approved: formData.get("approved") === "on" ? "on" : "",
     fallback_used: formData.get("fallback_used") === "on" ? "on" : "",
+    day1_trends_id: String(formData.get("day1_trends_id") ?? ""),
+    trend_index: String(formData.get("trend_index") ?? ""),
+    selected_trend: String(formData.get("selected_trend") ?? ""),
+    outline: String(formData.get("outline") ?? ""),
   };
 
   const runId = values.run_id.trim();
-  if (!runId) return { ok: false, values, error: "Run ID is required" };
+  if (!runId) return { ok: false, values, error: "Run ID обовʼязковий" };
 
-  const hookFormats = parseJsonField(
+  // NOT NULL у базі — порожнє поле має стати [], а не null
+  const hookFormats = parseRequiredJsonField(
     formData.get("hook_formats"),
-    "hook_formats",
+    "Гачки",
   );
   if (hookFormats.error) return { ok: false, values, error: hookFormats.error };
+
+  const selectedTrend = parseJsonField(
+    formData.get("selected_trend"),
+    "Обрана тема",
+  );
+  if (selectedTrend.error) {
+    return { ok: false, values, error: selectedTrend.error };
+  }
+
+  const outline = parseJsonField(formData.get("outline"), "Структура статті");
+  if (outline.error) return { ok: false, values, error: outline.error };
+
+  const day1Id = parseOptionalUuid(
+    formData.get("day1_trends_id"),
+    "ID запису Дня 1",
+  );
+  if (day1Id.error) return { ok: false, values, error: day1Id.error };
+
+  const trendIndex = parseOptionalIndex(
+    formData.get("trend_index"),
+    "Індекс теми",
+  );
+  if (trendIndex.error) return { ok: false, values, error: trendIndex.error };
 
   const approvedBy = values.approved_by.trim();
 
@@ -39,6 +72,10 @@ function buildPayload(formData: FormData): BuildResult {
       approved: values.approved === "on",
       approved_by: approvedBy || null,
       fallback_used: values.fallback_used === "on",
+      day1_trends_id: day1Id.value,
+      trend_index: trendIndex.value,
+      selected_trend: selectedTrend.value,
+      outline: outline.value,
     },
   };
 }
@@ -96,16 +133,35 @@ export async function deleteDay2Plan(projectId: string, recordId: string) {
   redirect(`/projects/${projectId}`);
 }
 
-export async function approvePlan(projectId: string) {
+/**
+ * HITL-гейт другого дня. Затверджує РІВНО один план: раніше фільтр стояв на
+ * project_id, тож один клік позначав схваленими всі запуски проєкту.
+ */
+export async function approvePlan(projectId: string, recordId: string) {
   const supabase = createClient();
+
   const { error } = await supabase
     .from("day2_plan")
     .update({ approved: true, approved_by: "admin" })
+    .eq("id", recordId)
     .eq("project_id", projectId);
 
   if (error) {
     throw new Error(error.message);
   }
 
+  // Просуваємо статус проєкту, але ніколи не назад: якщо він уже 'produced'
+  // чи 'rendered', затвердження плану не має його відкочувати.
+  const { error: statusError } = await supabase
+    .from("projects")
+    .update({ status: "planned", updated_at: new Date().toISOString() })
+    .eq("id", projectId)
+    .in("status", ["created", "researched"]);
+
+  if (statusError) {
+    throw new Error(statusError.message);
+  }
+
+  revalidatePath("/");
   revalidatePath(`/projects/${projectId}`);
 }

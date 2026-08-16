@@ -69,6 +69,62 @@ export function toJsonText(value: unknown): string {
   return JSON.stringify(parseMaybeJson(value) ?? [], null, 2);
 }
 
+/**
+ * Те саме, але для nullable-колонок: порожнє значення лишається порожнім
+ * полем, щоб зберегтися назад як null, а не як «[]».
+ */
+export function toJsonTextOrEmpty(value: unknown): string {
+  const parsed = parseMaybeJson(value);
+  return parsed == null ? "" : JSON.stringify(parsed, null, 2);
+}
+
+/** Варіант гачка з дня 2. Контракт: supabase/day2-plan-contract.md */
+export type Hook = {
+  /** question | myth_bust | stat | story | promise */
+  type?: string;
+  text?: string;
+  rationale?: string;
+  /** Індекс розділу outline, який цей гачок анонсує. */
+  section_ref?: number;
+};
+
+export type OutlineSection = {
+  h2?: string;
+  /** Навіщо розділ існує — це читає день 3, а не читач статті. */
+  goal?: string;
+  key_points?: string[];
+  subsections?: string[];
+  keywords?: string[];
+  /** Джерела з day1.sources, на які спирається саме цей розділ. */
+  source_urls?: string[];
+  target_words?: number;
+};
+
+export type Outline = {
+  working_title?: string;
+  primary_keyword?: string;
+  target_length_words?: number;
+  sections?: OutlineSection[];
+  cta?: string;
+};
+
+/**
+ * Знімок теми, обраної з дня 1, на момент затвердження. Авторитетне джерело
+ * для дня 3: переживає редагування й видалення вихідного дослідження.
+ */
+export type SelectedTrend = {
+  day1_run_id?: string;
+  title?: string;
+  hook_idea?: string;
+  audience?: string;
+  hashtags?: string[];
+  needs_verification?: boolean;
+  sources?: unknown[];
+  selected_at?: string;
+  /** Чому саме ця тема з N кандидатів. */
+  rationale?: string;
+};
+
 export type Day2Plan = {
   id: string;
   project_id: string;
@@ -77,7 +133,35 @@ export type Day2Plan = {
   approved: boolean;
   approved_by: string | null;
   fallback_used: boolean;
+  /** FK → day1_trends.id; null означає, що дослідження видалили. */
+  day1_trends_id: string | null;
+  /** Позиція теми в day1_trends.trends — вказівник best-effort. */
+  trend_index: number | null;
+  selected_trend: unknown;
+  outline: unknown;
 };
+
+export function toHooks(value: unknown): Hook[] {
+  return toArray(value).map((item) =>
+    typeof item === "string" ? { text: item } : (item as Hook),
+  );
+}
+
+export function toOutline(value: unknown): Outline | null {
+  const parsed = parseMaybeJson(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  return parsed as Outline;
+}
+
+export function toSelectedTrend(value: unknown): SelectedTrend | null {
+  const parsed = parseMaybeJson(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  return parsed as SelectedTrend;
+}
 
 export type Day3Assets = {
   id: string;
@@ -85,6 +169,9 @@ export type Day3Assets = {
   run_id: string;
   script: string | null;
   hook_variants: unknown;
+  /** Підказки ілюстрацій — по одній на розділ outline. Колонка була в базі
+   *  від початку, але панель про неї не знала. */
+  shot_hints: unknown;
   thumbnail_url: string | null;
 };
 

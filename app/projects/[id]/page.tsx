@@ -13,6 +13,7 @@ import {
 import {
   parseMaybeJson,
   toArray,
+  toOutline,
   toTrends,
   type Day1Trends,
   type Day2Plan,
@@ -20,6 +21,7 @@ import {
   type Day4Video,
 } from "@/lib/day-tables";
 import Pipeline, { type PipelineStep } from "@/components/Pipeline";
+import PlanDetails from "@/components/PlanDetails";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { LinkButton } from "@/components/ui/Button";
 import { SubmitButton } from "@/components/ui/SubmitButton";
@@ -170,7 +172,8 @@ export default async function ProjectDetailPage({
 
   const trends = toTrends(day1?.trends);
   const rawTrends = day1 ? unexpectedShape(day1.trends) : null;
-  const hookFormats = formatJsonList(day2?.hook_formats);
+  const planSections = toOutline(day2?.outline)?.sections?.length ?? 0;
+  const shotHints = formatJsonList(day3?.shot_hints);
   const shotlistCount = countItems(day4?.shotlist);
 
   const steps: PipelineStep[] = [
@@ -191,9 +194,9 @@ export default async function ProjectDetailPage({
       day: 2,
       title: "План",
       summary: day2
-        ? day2.approved
-          ? "Затверджено"
-          : "На розгляді"
+        ? `${planSections ? `${planSections} розділів · ` : ""}${
+            day2.approved ? "затверджено" : "на розгляді"
+          }`
         : "Немає даних",
       done: Boolean(day2),
       icon: PlanIcon,
@@ -424,56 +427,10 @@ export default async function ProjectDetailPage({
               <Placeholder>План ще не створений</Placeholder>
             ) : (
               <>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge
-                    className={
-                      day2.approved
-                        ? "bg-ok/14 text-ok ring-ok/30"
-                        : "bg-warn/14 text-warn ring-warn/30"
-                    }
-                  >
-                    {day2.approved ? "Затверджено" : "На розгляді"}
-                  </Badge>
-                  {day2.approved && day2.approved_by && (
-                    <span className="text-xs text-ink-faint">
-                      ким: {day2.approved_by}
-                    </span>
-                  )}
-                  {day2.fallback_used && (
-                    <Badge className="text-ink-muted ring-white/12">
-                      Fallback
-                    </Badge>
-                  )}
-                </div>
-
-                <div>
-                  <p className="text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-ink-faint">
-                    Формати гачків
-                  </p>
-                  {hookFormats.length === 0 ? (
-                    <p className="mt-2 text-sm text-ink-faint">
-                      Формати ще не задані
-                    </p>
-                  ) : (
-                    <ul className="mt-2 space-y-1.5">
-                      {hookFormats.map((item, index) => (
-                        <li
-                          key={index}
-                          className="flex gap-2.5 text-sm text-ink-muted"
-                        >
-                          <span
-                            aria-hidden="true"
-                            className="mt-2 h-1 w-1 shrink-0 rounded-full bg-arc/60"
-                          />
-                          {item}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+                <PlanDetails plan={day2} currentTrends={trends} />
 
                 {!day2.approved && (
-                  <form action={approvePlan.bind(null, id)}>
+                  <form action={approvePlan.bind(null, id, day2.id)}>
                     <SubmitButton pendingLabel="Затверджуємо…" size="sm">
                       <CheckIcon className="h-4 w-4" />
                       Затвердити план
@@ -508,12 +465,33 @@ export default async function ProjectDetailPage({
               <>
                 <div>
                   <p className="text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-ink-faint">
-                    Сценарій
+                    Текст статті
                   </p>
                   <div className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-xl bg-white/4 p-3.5 text-sm leading-relaxed text-ink-muted ring-1 ring-inset ring-white/8">
-                    {day3.script?.trim() || "Сценарію ще немає"}
+                    {day3.script?.trim() || "Тексту ще немає"}
                   </div>
                 </div>
+
+                {shotHints.length > 0 && (
+                  <div>
+                    <p className="text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-ink-faint">
+                      Підказки ілюстрацій
+                    </p>
+                    <ol className="mt-2 space-y-1.5">
+                      {shotHints.map((hint, index) => (
+                        <li
+                          key={index}
+                          className="flex gap-2.5 text-sm text-ink-muted"
+                        >
+                          <span className="tabular shrink-0 text-ink-faint">
+                            {index + 1}.
+                          </span>
+                          {hint}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
 
                 <div>
                   <p className="text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-ink-faint">

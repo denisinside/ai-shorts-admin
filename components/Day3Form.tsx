@@ -3,7 +3,11 @@
 import { useActionState } from "react";
 import { createDay3Assets, updateDay3Assets } from "@/app/actions/day3";
 import { initialFormState } from "@/lib/form-state";
-import { toJsonText, type Day3Assets } from "@/lib/day-tables";
+import {
+  toJsonText,
+  toJsonTextOrEmpty,
+  type Day3Assets,
+} from "@/lib/day-tables";
 import { Field, TextField, Textarea } from "./ui/Field";
 import { JsonTextarea } from "./ui/JsonTextarea";
 import { FormFooter } from "./ui/FormFooter";
@@ -32,11 +36,15 @@ export default function Day3Form({
         className="field-mono"
       />
 
-      <Field label="Сценарій" htmlFor="script">
+      <Field
+        label="Текст статті"
+        htmlFor="script"
+        hint="Markdown; пишеться по розділах outline із Дня 2"
+      >
         <Textarea
           id="script"
           name="script"
-          rows={10}
+          rows={14}
           required
           defaultValue={state.values?.script ?? record?.script ?? ""}
         />
@@ -44,11 +52,22 @@ export default function Day3Form({
 
       <JsonTextarea
         name="hook_variants"
-        label="Варіанти гачків (JSON)"
+        label="Варіанти вступу (JSON)"
         rows={8}
         defaultValue={
           state.values?.hook_variants ?? toJsonText(record?.hook_variants)
         }
+        hint="Обрані з гачків Дня 2 і дописані до повного абзацу"
+      />
+
+      <JsonTextarea
+        name="shot_hints"
+        label="Підказки ілюстрацій (JSON)"
+        rows={8}
+        defaultValue={
+          state.values?.shot_hints ?? toJsonTextOrEmpty(record?.shot_hints)
+        }
+        hint="По одній на розділ outline — промпт або опис зображення"
       />
 
       <TextField

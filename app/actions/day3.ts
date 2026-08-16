@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase";
-import { parseJsonField } from "@/lib/json-field";
+import { parseJsonField, parseRequiredJsonField } from "@/lib/json-field";
 import type { FormState } from "@/lib/form-state";
 
 type BuildResult =
@@ -15,22 +15,32 @@ function buildPayload(formData: FormData): BuildResult {
     run_id: String(formData.get("run_id") ?? ""),
     script: String(formData.get("script") ?? ""),
     hook_variants: String(formData.get("hook_variants") ?? ""),
+    shot_hints: String(formData.get("shot_hints") ?? ""),
     thumbnail_url: String(formData.get("thumbnail_url") ?? ""),
   };
 
   const runId = values.run_id.trim();
-  if (!runId) return { ok: false, values, error: "Run ID is required" };
+  if (!runId) return { ok: false, values, error: "Run ID обовʼязковий" };
 
   if (!values.script.trim()) {
-    return { ok: false, values, error: "Script is required" };
+    return { ok: false, values, error: "Текст статті обовʼязковий" };
   }
 
-  const hookVariants = parseJsonField(
+  // NOT NULL у базі — порожнє поле має стати [], а не null
+  const hookVariants = parseRequiredJsonField(
     formData.get("hook_variants"),
-    "hook_variants",
+    "Варіанти вступу",
   );
   if (hookVariants.error) {
     return { ok: false, values, error: hookVariants.error };
+  }
+
+  const shotHints = parseJsonField(
+    formData.get("shot_hints"),
+    "Підказки ілюстрацій",
+  );
+  if (shotHints.error) {
+    return { ok: false, values, error: shotHints.error };
   }
 
   const thumbnailUrl = values.thumbnail_url.trim();
@@ -42,6 +52,7 @@ function buildPayload(formData: FormData): BuildResult {
       run_id: runId,
       script: values.script,
       hook_variants: hookVariants.value,
+      shot_hints: shotHints.value,
       thumbnail_url: thumbnailUrl || null,
     },
   };

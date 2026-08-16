@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase";
-import { parseJsonField } from "@/lib/json-field";
+import { parseJsonField, parseRequiredJsonField } from "@/lib/json-field";
 import type { FormState } from "@/lib/form-state";
 
 type BuildResult =
@@ -21,21 +21,25 @@ function buildPayload(formData: FormData): BuildResult {
   };
 
   const runId = values.run_id.trim();
-  if (!runId) return { ok: false, values, error: "Run ID is required" };
+  if (!runId) return { ok: false, values, error: "Run ID обовʼязковий" };
 
-  const shotlist = parseJsonField(formData.get("shotlist"), "shotlist");
+  // shotlist — NOT NULL у базі, тож порожнє поле стає []
+  const shotlist = parseRequiredJsonField(
+    formData.get("shotlist"),
+    "Шотліст",
+  );
   if (shotlist.error) return { ok: false, values, error: shotlist.error };
 
   const knowledgeRefs = parseJsonField(
     formData.get("knowledge_refs"),
-    "knowledge_refs",
+    "Посилання на знання",
   );
   if (knowledgeRefs.error) {
     return { ok: false, values, error: knowledgeRefs.error };
   }
 
   const status = values.status.trim();
-  if (!status) return { ok: false, values, error: "Status is required" };
+  if (!status) return { ok: false, values, error: "Статус обовʼязковий" };
 
   return {
     ok: true,

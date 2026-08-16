@@ -18,7 +18,7 @@ function buildPayload(formData: FormData): BuildResult {
   };
 
   const runId = values.run_id.trim();
-  if (!runId) return { ok: false, values, error: "Run ID is required" };
+  if (!runId) return { ok: false, values, error: "Run ID обовʼязковий" };
 
   const trends = parseJsonField(formData.get("trends"), "trends");
   if (trends.error) return { ok: false, values, error: trends.error };
