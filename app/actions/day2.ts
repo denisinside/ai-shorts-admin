@@ -22,6 +22,10 @@ function buildPayload(formData: FormData): BuildResult {
     approved_by: String(formData.get("approved_by") ?? ""),
     approved: formData.get("approved") === "on" ? "on" : "",
     fallback_used: formData.get("fallback_used") === "on" ? "on" : "",
+    fallback_reason: String(formData.get("fallback_reason") ?? ""),
+    needs_review: formData.get("needs_review") === "on" ? "on" : "",
+    review_reason: String(formData.get("review_reason") ?? ""),
+    discord_message_id: String(formData.get("discord_message_id") ?? ""),
     day1_trends_id: String(formData.get("day1_trends_id") ?? ""),
     trend_index: String(formData.get("trend_index") ?? ""),
     selected_trend: String(formData.get("selected_trend") ?? ""),
@@ -72,6 +76,12 @@ function buildPayload(formData: FormData): BuildResult {
       approved: values.approved === "on",
       approved_by: approvedBy || null,
       fallback_used: values.fallback_used === "on",
+      // Порожнє поле — це null, а не "": інакше в базі осідають пусті рядки,
+      // і `review_reason is not null` перестає означати «є що перевірити».
+      fallback_reason: values.fallback_reason.trim() || null,
+      needs_review: values.needs_review === "on",
+      review_reason: values.review_reason.trim() || null,
+      discord_message_id: values.discord_message_id.trim() || null,
       day1_trends_id: day1Id.value,
       trend_index: trendIndex.value,
       selected_trend: selectedTrend.value,
@@ -134,20 +144,39 @@ export async function deleteDay2Plan(projectId: string, recordId: string) {
 }
 
 /**
- * HITL-гейт другого дня. Затверджує РІВНО один план: раніше фільтр стояв на
- * project_id, тож один клік позначав схваленими всі запуски проєкту.
+ * HITL-гейт другого дня, панельна половина. Друга половина — кнопки в Discord
+ * (`app/api/discord/interactions`), і обидві пишуть у ті самі колонки.
+ *
+ * `.is("decided_at", null)` — той самий атомарний guard, що й у воркфлоу: умова
+ * стоїть у фільтрі запиту, тож рішення ухвалює той, хто натиснув першим, а
+ * другий клік (хоч у панелі, хоч у Discord) не оновлює нічого.
  */
 export async function approvePlan(projectId: string, recordId: string) {
   const supabase = createClient();
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("day2_plan")
-    .update({ approved: true, approved_by: "admin" })
+    // Затвердження людиною знімає `needs_review`: питання закрите.
+    // `fallback_used` і `fallback_reason` лишаються — це факт про те, на чому
+    // будувався план, а не невирішена задача.
+    .update({
+      approved: true,
+      approved_by: "admin",
+      needs_review: false,
+      decided_at: new Date().toISOString(),
+    })
     .eq("id", recordId)
-    .eq("project_id", projectId);
+    .eq("project_id", projectId)
+    .is("decided_at", null)
+    .select("id");
 
   if (error) {
     throw new Error(error.message);
+  }
+  if (!data?.length) {
+    throw new Error(
+      "Рішення по цьому плану вже ухвалене — онови сторінку, щоб побачити його",
+    );
   }
 
   // Просуваємо статус проєкту, але ніколи не назад: якщо він уже 'produced'
@@ -160,6 +189,39 @@ export async function approvePlan(projectId: string, recordId: string) {
 
   if (statusError) {
     throw new Error(statusError.message);
+  }
+
+  revalidatePath("/");
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/**
+ * Відхилення плану. Робота не видаляється: рядок лишається чернеткою з
+ * `needs_review`, бо кейс вимагає позначати проблемне, а не викидати його.
+ * `approved_by` тут читається як «хто ухвалив рішення» — дивись `approved`.
+ * Статус проєкту не рухається: відхилений план нічого не спланував.
+ */
+export async function rejectPlan(projectId: string, recordId: string) {
+  const supabase = createClient();
+
+  const { data, error } = await supabase
+    .from("day2_plan")
+    .update({
+      approved: false,
+      approved_by: "admin",
+      needs_review: true,
+      decided_at: new Date().toISOString(),
+    })
+    .eq("id", recordId)
+    .eq("project_id", projectId)
+    .is("decided_at", null)
+    .select("id");
+
+  if (error) throw new Error(error.message);
+  if (!data?.length) {
+    throw new Error(
+      "Рішення по цьому плану вже ухвалене — онови сторінку, щоб побачити його",
+    );
   }
 
   revalidatePath("/");

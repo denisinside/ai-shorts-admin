@@ -115,15 +115,47 @@ export type Outline = {
 export type SelectedTrend = {
   day1_run_id?: string;
   title?: string;
+  description?: string;
   hook_idea?: string;
   audience?: string;
   hashtags?: string[];
+  /** Ескіз заголовків із Дня 1 — вхід для outline, не сам outline. */
+  format?: string[];
+  niche?: string;
+  broader_category?: string | null;
   needs_verification?: boolean;
+  verification_note?: string | null;
+  /** Джерела, які фактчекер допустив до цитування (url, publisher, supports,
+   *  relevance: direct|background, has_numbers). */
   sources?: unknown[];
+  /** Джерела, відкинуті фактчекером: url + причина. */
+  unusable_sources?: unknown[];
+  /** Цифри, які дозволено подавати як встановлені: value, claim, url. */
+  key_numbers?: unknown[];
+  /** strong | partial | none — оцінка доказової бази. */
+  evidence_quality?: string;
   selected_at?: string;
-  /** Чому саме ця тема з N кандидатів. */
+  /** Чому саме ця тема з N кандидатів. Старі рядки писали `rationale`,
+   *  нові з Dify — `selection_reasoning`; читати треба обидва. */
   rationale?: string;
+  selection_reasoning?: string;
+  /** high | medium | low — упевненість ноди вибору теми. */
+  confidence?: string;
+  rejected_alternatives?: unknown[];
 };
+
+export const EVIDENCE_LABELS: Record<string, string> = {
+  strong: "міцна доказова база",
+  partial: "часткова доказова база",
+  none: "без джерел",
+};
+
+/** Обґрунтування вибору теми — сумісно зі старою й новою формою знімка. */
+export function selectedTrendReasoning(
+  selected: SelectedTrend | null,
+): string | undefined {
+  return selected?.selection_reasoning ?? selected?.rationale ?? undefined;
+}
 
 export type Day2Plan = {
   id: string;
@@ -133,6 +165,21 @@ export type Day2Plan = {
   approved: boolean;
   approved_by: string | null;
   fallback_used: boolean;
+  /** ЯКА саме умова fallback спрацювала — заповнює День 2. */
+  fallback_reason: string | null;
+  /** Чернетка: людина ще має подивитися план. Затвердження знімає позначку,
+   *  fallback_used при цьому лишається фактом про доказову базу. */
+  needs_review: boolean;
+  /** Що саме перевірити, людською мовою. */
+  review_reason: string | null;
+  /**
+   * Коли ухвалено рішення. `null` = картка ще висить у Discord і гейт відкритий.
+   * Разом з `approved` дає три стани, тому окремого поля-статусу немає:
+   * null → чекає, час + true → затверджено, час + false → відхилено.
+   */
+  decided_at: string | null;
+  /** Повідомлення з карткою — його перемальовує воркфлоу після рішення. */
+  discord_message_id: string | null;
   /** FK → day1_trends.id; null означає, що дослідження видалили. */
   day1_trends_id: string | null;
   /** Позиція теми в day1_trends.trends — вказівник best-effort. */

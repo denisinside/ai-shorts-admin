@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase";
 import { deleteDay1Trends } from "@/app/actions/day1";
-import { approvePlan, deleteDay2Plan } from "@/app/actions/day2";
+import { approvePlan, deleteDay2Plan, rejectPlan } from "@/app/actions/day2";
 import { deleteDay3Assets } from "@/app/actions/day3";
 import { deleteDay4Video } from "@/app/actions/day4";
 import {
@@ -31,6 +31,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import {
   AssetIcon,
   CheckIcon,
+  CloseIcon,
   ExternalIcon,
   PencilIcon,
   PlanIcon,
@@ -195,7 +196,11 @@ export default async function ProjectDetailPage({
       title: "План",
       summary: day2
         ? `${planSections ? `${planSections} розділів · ` : ""}${
-            day2.approved ? "затверджено" : "на розгляді"
+            day2.approved
+              ? "затверджено"
+              : day2.needs_review
+                ? "потребує перевірки"
+                : "на розгляді"
           }`
         : "Немає даних",
       done: Boolean(day2),
@@ -429,13 +434,28 @@ export default async function ProjectDetailPage({
               <>
                 <PlanDetails plan={day2} currentTrends={trends} />
 
-                {!day2.approved && (
-                  <form action={approvePlan.bind(null, id, day2.id)}>
-                    <SubmitButton pendingLabel="Затверджуємо…" size="sm">
-                      <CheckIcon className="h-4 w-4" />
-                      Затвердити план
-                    </SubmitButton>
-                  </form>
+                {/* Кнопки лишаються доступними, поки рішення не ухвалене — ні тут,
+                    ні в Discord. Легасі-рядки, затверджені до появи decided_at,
+                    під цю умову не потрапляють. */}
+                {!day2.decided_at && !day2.approved && (
+                  <div className="flex flex-wrap gap-2">
+                    <form action={approvePlan.bind(null, id, day2.id)}>
+                      <SubmitButton pendingLabel="Затверджуємо…" size="sm">
+                        <CheckIcon className="h-4 w-4" />
+                        Затвердити план
+                      </SubmitButton>
+                    </form>
+                    <form action={rejectPlan.bind(null, id, day2.id)}>
+                      <SubmitButton
+                        pendingLabel="Відхиляємо…"
+                        size="sm"
+                        variant="danger"
+                      >
+                        <CloseIcon className="h-4 w-4" />
+                        Відхилити
+                      </SubmitButton>
+                    </form>
+                  </div>
                 )}
               </>
             )}

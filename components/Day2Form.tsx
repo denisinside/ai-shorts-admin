@@ -8,7 +8,7 @@ import {
   toJsonTextOrEmpty,
   type Day2Plan,
 } from "@/lib/day-tables";
-import { Checkbox, TextField } from "./ui/Field";
+import { Checkbox, Field, Textarea, TextField } from "./ui/Field";
 import { JsonTextarea } from "./ui/JsonTextarea";
 import { FormFooter } from "./ui/FormFooter";
 
@@ -90,13 +90,27 @@ export default function Day2Form({
         hint="Масив із 3 обʼєктів: type, text, rationale"
       />
 
-      <TextField
-        label="Хто затвердив"
-        name="approved_by"
-        defaultValue={state.values?.approved_by ?? record?.approved_by ?? ""}
-      />
+      <div className="grid gap-5 sm:grid-cols-2">
+        <TextField
+          label="Хто ухвалив рішення"
+          name="approved_by"
+          defaultValue={state.values?.approved_by ?? record?.approved_by ?? ""}
+          hint="При «відхилено» — той, хто відхилив"
+        />
+        <TextField
+          label="ID повідомлення в Discord"
+          name="discord_message_id"
+          defaultValue={
+            state.values?.discord_message_id ??
+            record?.discord_message_id ??
+            ""
+          }
+          hint="Заповнює воркфлоу; потрібне, щоб перемалювати картку"
+          className="field-mono"
+        />
+      </div>
 
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-3">
         <Checkbox
           name="approved"
           label="Затверджено"
@@ -104,6 +118,15 @@ export default function Day2Form({
             state.values
               ? state.values.approved === "on"
               : (record?.approved ?? false)
+          }
+        />
+        <Checkbox
+          name="needs_review"
+          label="Потребує перевірки"
+          defaultChecked={
+            state.values
+              ? state.values.needs_review === "on"
+              : (record?.needs_review ?? false)
           }
         />
         <Checkbox
@@ -116,6 +139,36 @@ export default function Day2Form({
           }
         />
       </div>
+
+      <Field
+        label="Що перевірити"
+        htmlFor="review_reason"
+        hint="Заповнює День 2, коли план не пройшов перевірок або людина відправила його на доопрацювання"
+      >
+        <Textarea
+          id="review_reason"
+          name="review_reason"
+          rows={3}
+          defaultValue={
+            state.values?.review_reason ?? record?.review_reason ?? ""
+          }
+        />
+      </Field>
+
+      <Field
+        label="Причина fallback"
+        htmlFor="fallback_reason"
+        hint="Яка саме умова спрацювала: немає джерел, тема неперевірена, більшість розділів без джерел"
+      >
+        <Textarea
+          id="fallback_reason"
+          name="fallback_reason"
+          rows={2}
+          defaultValue={
+            state.values?.fallback_reason ?? record?.fallback_reason ?? ""
+          }
+        />
+      </Field>
 
       <FormFooter
         error={state?.error}

@@ -1,5 +1,8 @@
 import { cn } from "@/lib/ui";
 import {
+  EVIDENCE_LABELS,
+  selectedTrendReasoning,
+  toArray,
   toHooks,
   toOutline,
   toSelectedTrend,
@@ -41,6 +44,19 @@ export default function PlanDetails({
   const outline = toOutline(plan.outline);
   const hooks = toHooks(plan.hook_formats);
   const sections = outline?.sections ?? [];
+  const reasoning = selectedTrendReasoning(selected);
+  // Три стани гейта з двох колонок: decided_at — чи ухвалене рішення,
+  // approved — яке саме. Окремого поля-статусу немає навмисно.
+  const decided = Boolean(plan.decided_at);
+  const decidedAt = plan.decided_at
+    ? new Date(plan.decided_at).toLocaleString("uk-UA", {
+        dateStyle: "short",
+        timeStyle: "short",
+      })
+    : null;
+  const allowedSources = toArray(selected?.sources).length;
+  const rejectedSources = toArray(selected?.unusable_sources).length;
+  const keyNumbers = toArray(selected?.key_numbers).length;
 
   // Знімок робився на момент затвердження; дослідження могли змінити пізніше
   const linkedTrend =
@@ -59,20 +75,52 @@ export default function PlanDetails({
           className={
             plan.approved
               ? "bg-ok/14 text-ok ring-ok/30"
-              : "bg-warn/14 text-warn ring-warn/30"
+              : decided
+                ? "bg-danger/14 text-danger ring-danger/30"
+                : "bg-warn/14 text-warn ring-warn/30"
           }
         >
-          {plan.approved ? "Затверджено" : "На розгляді"}
+          {plan.approved
+            ? "Затверджено"
+            : decided
+              ? "Відхилено"
+              : "Чекає на рішення"}
         </Badge>
-        {plan.approved && plan.approved_by && (
+        {decided && plan.approved_by && (
           <span className="text-xs text-ink-faint">
-            ким: {plan.approved_by}
+            {plan.approved ? "затвердив" : "відхилив"}: {plan.approved_by}
           </span>
+        )}
+        {decidedAt && (
+          <span className="tabular text-xs text-ink-faint">{decidedAt}</span>
+        )}
+        {!decided && plan.discord_message_id && (
+          <span className="text-xs text-ink-faint">картка в Discord</span>
+        )}
+        {/* Дві різні речі: needs_review — незакрите питання до людини,
+            fallback_used — факт про доказову базу, який лишається назавжди */}
+        {plan.needs_review && (
+          <Badge className="bg-warn/14 text-warn ring-warn/30">
+            Потребує перевірки
+          </Badge>
         )}
         {plan.fallback_used && (
           <Badge className="text-ink-muted ring-white/12">Fallback</Badge>
         )}
       </div>
+
+      {(plan.needs_review || plan.review_reason) && (
+        <p className="flex items-start gap-2 rounded-lg bg-warn/8 px-3 py-2 text-xs leading-relaxed text-warn ring-1 ring-inset ring-warn/20">
+          <WarningIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {plan.review_reason ?? "План позначено як такий, що потребує перевірки"}
+        </p>
+      )}
+
+      {plan.fallback_used && plan.fallback_reason && (
+        <p className="text-xs leading-relaxed text-ink-faint">
+          Fallback: {plan.fallback_reason}
+        </p>
+      )}
 
       {/* ---------------------------------------------- обрана тема */}
       {selected && (
@@ -91,8 +139,33 @@ export default function PlanDetails({
 
           <p className="mt-1.5 font-medium text-ink">{selected.title}</p>
 
-          {selected.rationale && (
-            <p className="mt-1.5 text-sm text-ink-muted">{selected.rationale}</p>
+          {reasoning && (
+            <p className="mt-1.5 text-sm text-ink-muted">{reasoning}</p>
+          )}
+
+          {/* Підсумок роботи фактчекера: скільки джерел дозволено цитувати,
+              скільки відкинуто і чи є цифри для гачка типу stat */}
+          {(allowedSources > 0 ||
+            rejectedSources > 0 ||
+            selected.evidence_quality) && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint">
+              {selected.evidence_quality && (
+                <span>
+                  {EVIDENCE_LABELS[selected.evidence_quality] ??
+                    selected.evidence_quality}
+                </span>
+              )}
+              <span className="tabular">{allowedSources} джерел дозволено</span>
+              {rejectedSources > 0 && (
+                <span className="tabular">{rejectedSources} відкинуто</span>
+              )}
+              {keyNumbers > 0 && (
+                <span className="tabular">{keyNumbers} перевірених цифр</span>
+              )}
+              {selected.confidence && (
+                <span>упевненість: {selected.confidence}</span>
+              )}
+            </div>
           )}
 
           {(researchDeleted || driftedFromResearch) && (
@@ -108,6 +181,12 @@ export default function PlanDetails({
             <Badge className="mt-2.5 bg-warn/14 text-warn ring-warn/30">
               тема потребує перевірки
             </Badge>
+          )}
+
+          {selected.verification_note && (
+            <p className="mt-1.5 text-xs text-ink-faint">
+              {selected.verification_note}
+            </p>
           )}
         </section>
       )}
