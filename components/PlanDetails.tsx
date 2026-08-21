@@ -10,6 +10,7 @@ import {
   type Trend,
 } from "@/lib/day-tables";
 import { Badge } from "./ui/Badge";
+import { GateBadges } from "./GateStatus";
 import { ExternalIcon, WarningIcon } from "./ui/icons";
 
 const HOOK_LABELS: Record<string, string> = {
@@ -45,15 +46,6 @@ export default function PlanDetails({
   const hooks = toHooks(plan.hook_formats);
   const sections = outline?.sections ?? [];
   const reasoning = selectedTrendReasoning(selected);
-  // Три стани гейта з двох колонок: decided_at — чи ухвалене рішення,
-  // approved — яке саме. Окремого поля-статусу немає навмисно.
-  const decided = Boolean(plan.decided_at);
-  const decidedAt = plan.decided_at
-    ? new Date(plan.decided_at).toLocaleString("uk-UA", {
-        dateStyle: "short",
-        timeStyle: "short",
-      })
-    : null;
   const allowedSources = toArray(selected?.sources).length;
   const rejectedSources = toArray(selected?.unusable_sources).length;
   const keyNumbers = toArray(selected?.key_numbers).length;
@@ -70,57 +62,10 @@ export default function PlanDetails({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge
-          className={
-            plan.approved
-              ? "bg-ok/14 text-ok ring-ok/30"
-              : decided
-                ? "bg-danger/14 text-danger ring-danger/30"
-                : "bg-warn/14 text-warn ring-warn/30"
-          }
-        >
-          {plan.approved
-            ? "Затверджено"
-            : decided
-              ? "Відхилено"
-              : "Чекає на рішення"}
-        </Badge>
-        {decided && plan.approved_by && (
-          <span className="text-xs text-ink-faint">
-            {plan.approved ? "затвердив" : "відхилив"}: {plan.approved_by}
-          </span>
-        )}
-        {decidedAt && (
-          <span className="tabular text-xs text-ink-faint">{decidedAt}</span>
-        )}
-        {!decided && plan.discord_message_id && (
-          <span className="text-xs text-ink-faint">картка в Discord</span>
-        )}
-        {/* Дві різні речі: needs_review — незакрите питання до людини,
-            fallback_used — факт про доказову базу, який лишається назавжди */}
-        {plan.needs_review && (
-          <Badge className="bg-warn/14 text-warn ring-warn/30">
-            Потребує перевірки
-          </Badge>
-        )}
-        {plan.fallback_used && (
-          <Badge className="text-ink-muted ring-white/12">Fallback</Badge>
-        )}
-      </div>
-
-      {(plan.needs_review || plan.review_reason) && (
-        <p className="flex items-start gap-2 rounded-lg bg-warn/8 px-3 py-2 text-xs leading-relaxed text-warn ring-1 ring-inset ring-warn/20">
-          <WarningIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          {plan.review_reason ?? "План позначено як такий, що потребує перевірки"}
-        </p>
-      )}
-
-      {plan.fallback_used && plan.fallback_reason && (
-        <p className="text-xs leading-relaxed text-ink-faint">
-          Fallback: {plan.fallback_reason}
-        </p>
-      )}
+      <GateBadges
+        gate={plan}
+        fallbackReviewText="План позначено як такий, що потребує перевірки"
+      />
 
       {/* ---------------------------------------------- обрана тема */}
       {selected && (

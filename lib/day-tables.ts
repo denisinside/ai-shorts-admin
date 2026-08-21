@@ -35,7 +35,49 @@ export type Day1Trends = {
   run_id: string;
   trends: unknown;
   sources: unknown;
+  // ---- HITL-гейт: дзеркало day2_plan ----
+  // Імена й семантика збігаються з Днем 2 навмисно: на цьому тримається
+  // спільний обробник кліку в lib/discord-gate.ts.
+  approved: boolean;
+  /** Хто ухвалив рішення. При approved=false — хто відхилив. */
+  approved_by: string | null;
+  /**
+   * Коли ухвалено рішення. `null` = картка ще висить у Discord.
+   * Разом з `approved` дає три стани, тому окремого поля-статусу немає.
+   */
+  decided_at: string | null;
+  /** Незакрите питання до людини; затвердження знімає позначку. */
+  needs_review: boolean;
+  review_reason: string | null;
+  /** Факт про доказову базу — на відміну від needs_review, не знімається. */
+  fallback_used: boolean;
+  fallback_reason: string | null;
+  discord_message_id: string | null;
+  /** Запит, з якого зроблено прогін — без нього перезапуск із правками неможливий. */
+  research_input: unknown;
+  /** Попередня чернетка, яку цей прогін переробляє. */
+  revision_of: string | null;
+  /** Що саме людина попросила змінити. */
+  revision_note: string | null;
 };
+
+/** Запит прогону Дня 1. Поля опційні: рядки до появи колонки її не мають. */
+export type ResearchInput = {
+  niche?: string;
+  audience?: string;
+  count?: number;
+  language?: string;
+  markets?: string[] | string;
+  notes?: string | null;
+};
+
+export function toResearchInput(value: unknown): ResearchInput | null {
+  const parsed = parseMaybeJson(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  return parsed as ResearchInput;
+}
 
 /** Розгортає рядок із JSON; усе інше повертає як є. */
 export function parseMaybeJson(value: unknown): unknown {

@@ -14,14 +14,17 @@ import {
   parseMaybeJson,
   toArray,
   toOutline,
+  toResearchInput,
   toTrends,
   type Day1Trends,
   type Day2Plan,
   type Day3Assets,
   type Day4Video,
+  type ResearchInput,
 } from "@/lib/day-tables";
 import Pipeline, { type PipelineStep } from "@/components/Pipeline";
 import PlanDetails from "@/components/PlanDetails";
+import { GateBadges } from "@/components/GateStatus";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { LinkButton } from "@/components/ui/Button";
 import { SubmitButton } from "@/components/ui/SubmitButton";
@@ -55,6 +58,26 @@ function formatJsonList(value: unknown): string[] {
 
 function countItems(value: unknown): number {
   return toArray(value).length;
+}
+
+/**
+ * Запит прогону одним рядком. Показувати його варто, бо саме він — вхід для
+ * кнопки «Правки»: людина має бачити, що саме буде переписано.
+ */
+function researchSummary(input: ResearchInput): string {
+  const markets = Array.isArray(input.markets)
+    ? input.markets.join(", ")
+    : input.markets;
+  return [
+    input.niche,
+    input.audience,
+    typeof input.count === "number" ? `${input.count} тем` : null,
+    input.language,
+    markets,
+    input.notes,
+  ]
+    .filter((part) => typeof part === "string" && part.trim().length > 0)
+    .join(" · ");
 }
 
 /**
@@ -173,6 +196,7 @@ export default async function ProjectDetailPage({
 
   const trends = toTrends(day1?.trends);
   const rawTrends = day1 ? unexpectedShape(day1.trends) : null;
+  const researchInput = toResearchInput(day1?.research_input);
   const planSections = toOutline(day2?.outline)?.sections?.length ?? 0;
   const shotHints = formatJsonList(day3?.shot_hints);
   const shotlistCount = countItems(day4?.shotlist);
@@ -183,11 +207,19 @@ export default async function ProjectDetailPage({
       day: 1,
       title: "Тренди",
       summary: trends.length
-        ? `${trends.length} трендів`
+        ? `${trends.length} трендів · ${
+            day1?.approved
+              ? "затверджено"
+              : day1?.decided_at
+                ? "відхилено"
+                : "на розгляді"
+          }`
         : rawTrends
           ? "Несподіваний формат"
           : "Немає даних",
-      done: trends.length > 0,
+      // Крок пройдено лише коли дослідження затверджене: чернетка, яку ще
+      // ніхто не бачив, не є підставою вважати День 1 закритим
+      done: trends.length > 0 && Boolean(day1?.approved),
       icon: TrendIcon,
     },
     {
@@ -277,6 +309,28 @@ export default async function ProjectDetailPage({
             }
           />
           <CardBody className="space-y-3">
+            {day1 && (
+              <div className="space-y-2.5 border-b border-white/8 pb-3">
+                <GateBadges
+                  gate={day1}
+                  fallbackReviewText="Дослідження позначене як таке, що потребує перевірки"
+                />
+                {researchInput && (
+                  <p className="text-xs leading-relaxed text-ink-faint">
+                    <span className="text-ink-muted">Запит:</span>{" "}
+                    {researchSummary(researchInput)}
+                  </p>
+                )}
+                {/* Правки — ланцюжок, а не другий рядок «нізвідки»: показуємо,
+                    що саме попросили змінити в попередній чернетці */}
+                {day1.revision_note && (
+                  <p className="text-xs leading-relaxed text-ink-faint">
+                    <span className="text-ink-muted">Правки:</span>{" "}
+                    {day1.revision_note}
+                  </p>
+                )}
+              </div>
+            )}
             {trends.length === 0 ? (
               rawTrends ? (
                 <RawJson label="Поле trends не є масивом — показано сирий вміст">
