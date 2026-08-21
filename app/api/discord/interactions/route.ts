@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { after } from "next/server";
 
 // node:crypto недоступний в edge-рантаймі, а без перевірки підпису Discord
 // навіть не збереже Interactions Endpoint URL.
@@ -6,11 +7,17 @@ export const runtime = "nodejs";
 
 /**
  * Ендпоінт Discord Interactions. Стоїть тут, а не в Dify, з однієї причини:
- * Discord вимагає 401 на битий підпис (він надсилає такий при реєстрації URL)
- * і `{"type":1}` на PING, а вебхук-тригер Dify віддає лише 2xx–3xx.
+ * Discord вимагає `{"type":1}` на PING і **401** на битий підпис (він надсилає
+ * такий при реєстрації URL), а вебхук-тригер Dify віддає лише 2xx–3xx.
  *
- * Роль ендпоінта — тонка: перевірити підпис, погасити кнопки й переказати
- * ІДЕНТИФІКАТОРИ у вебхук Dify. Рішення в базу пише воркфлоу, не ця ручка.
+ * Головне обмеження: **3 секунди на відповідь**. Інакше користувач бачить
+ * «Приложение не ответило вовремя». Тому порядок такий: перевірили підпис →
+ * ВІДПОВІЛИ (кнопки згасли) → і лише потім, у `after()`, стукаємо в Dify.
+ * Якщо Dify не відповів, `after()` повертає кнопки й пише причину в картку —
+ * клік завжди можна повторити.
+ *
+ * GET на цю ж адресу показує стан конфігурації (без значень) — коли клік
+ * «не працює», починати варто звідти.
  */
 
 // Ed25519 SPKI DER-префікс: 32 байти ключа Discord дає у hex без обгортки.
@@ -20,9 +27,13 @@ const CUSTOM_ID_RE =
   /^day2:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):(approve|reject)$/i;
 
 const GREY = 0x9b9b9b;
+const RED = 0xed4245;
+const DISCORD_API = "https://discord.com/api/v10";
 
 type Interaction = {
   type?: number;
+  application_id?: string;
+  token?: string;
   channel_id?: string;
   channel?: { id?: string };
   message?: { id?: string; embeds?: unknown[] };
@@ -38,7 +49,7 @@ function verifySignature(raw: string, request: Request, publicKey: string): bool
 
   try {
     const key = crypto.createPublicKey({
-      key: Buffer.concat([DER_PREFIX, Buffer.from(publicKey, "hex")]),
+      key: Buffer.concat([DER_PREFIX, Buffer.from(publicKey.trim(), "hex")]),
       format: "der",
       type: "spki",
     });
@@ -53,9 +64,66 @@ function verifySignature(raw: string, request: Request, publicKey: string): bool
   }
 }
 
-/** Ефемерна відповідь: бачить лише той, хто натиснув, кнопки лишаються живими. */
+/** Ефемерна відповідь: бачить лише той, хто натиснув; кнопки лишаються живими. */
 function ephemeral(content: string) {
   return Response.json({ type: 4, data: { content, flags: 64 } });
+}
+
+function decisionButtons(planId: string) {
+  return [
+    {
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: 3,
+          label: "Затвердити",
+          custom_id: `day2:${planId}:approve`,
+        },
+        {
+          type: 2,
+          style: 4,
+          label: "Відхилити",
+          custom_id: `day2:${planId}:reject`,
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * Діагностика: що з конфігурації видно застосунку. Значень не показує —
+ * лише наявність, довжину й хост, щоб не зливати ключі в браузер.
+ */
+export async function GET() {
+  const publicKey = process.env.DISCORD_PUBLIC_KEY ?? "";
+  const webhook = process.env.DIFY_WEBHOOK_URL ?? "";
+  let webhookHost = "";
+  try {
+    webhookHost = webhook ? new URL(webhook).host : "";
+  } catch {
+    webhookHost = "НЕКОРЕКТНИЙ URL";
+  }
+
+  const problems: string[] = [];
+  if (!publicKey) problems.push("DISCORD_PUBLIC_KEY не заданий — Discord отримає 500");
+  else if (publicKey.trim().length !== 64)
+    problems.push(`DISCORD_PUBLIC_KEY має бути 64 hex-символи, а не ${publicKey.trim().length}`);
+  if (!webhook) problems.push("DIFY_WEBHOOK_URL не заданий — рішення нікуди передавати");
+  else if (!/^https?:\/\//.test(webhook)) problems.push("DIFY_WEBHOOK_URL має починатися з https://");
+
+  return Response.json({
+    endpoint: "discord interactions",
+    runtime: "nodejs",
+    discord_public_key: {
+      present: Boolean(publicKey),
+      length: publicKey.trim().length,
+    },
+    dify_webhook: { present: Boolean(webhook), host: webhookHost },
+    dify_webhook_key: { present: Boolean(process.env.DIFY_WEBHOOK_KEY) },
+    ok: problems.length === 0,
+    problems,
+  });
 }
 
 export async function POST(request: Request) {
@@ -65,7 +133,7 @@ export async function POST(request: Request) {
 
   const publicKey = process.env.DISCORD_PUBLIC_KEY;
   if (!publicKey) {
-    console.error("DISCORD_PUBLIC_KEY не заданий");
+    console.error("[discord] DISCORD_PUBLIC_KEY не заданий");
     return new Response("misconfigured", { status: 500 });
   }
   if (!verifySignature(raw, request, publicKey)) {
@@ -93,51 +161,84 @@ export async function POST(request: Request) {
 
   const webhookUrl = process.env.DIFY_WEBHOOK_URL;
   if (!webhookUrl) {
-    console.error("DIFY_WEBHOOK_URL не заданий");
-    return ephemeral("Вебхук воркфлоу не налаштований — рішення не передано.");
+    // Кнопки лишаємо живими: щойно змінна з'явиться, клік спрацює.
+    console.error("[discord] DIFY_WEBHOOK_URL не заданий");
+    return ephemeral(
+      "Вебхук воркфлоу не налаштований (DIFY_WEBHOOK_URL). Рішення не передано — " +
+        "перевір /api/discord/interactions у браузері.",
+    );
   }
 
-  // Awaited, не fire-and-forget: serverless уб'є процес після відповіді.
-  // Вебхук-тригер Dify відповідає одразу після старту рану, тож у 3 секунди,
-  // які дає Discord, це вкладається.
-  try {
-    const response = await fetch(webhookUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(process.env.DIFY_WEBHOOK_KEY
-          ? { Authorization: `Bearer ${process.env.DIFY_WEBHOOK_KEY}` }
-          : {}),
-      },
-      // Тільки ідентифікатори: вебхук-тригер Dify не має автентифікації, тому
-      // все, що тут поїде, вважається недовіреним і перевіряється на боці графа.
-      body: JSON.stringify({
-        plan_id: planId,
-        action,
-        user,
-        user_id: who.id ?? "",
-        channel_id: interaction.channel_id ?? interaction.channel?.id ?? "",
-        message_id: interaction.message?.id ?? "",
-        decided_at: new Date().toISOString(),
-      }),
-    });
-    if (!response.ok) {
-      console.error("Dify webhook відповів", response.status, await response.text());
-      return ephemeral(
-        `Воркфлоу не прийняв рішення (HTTP ${response.status}). Спробуйте ще раз.`,
-      );
-    }
-  } catch (error) {
-    console.error("Dify webhook недоступний", error);
-    return ephemeral("Воркфлоу недоступний — рішення не передано. Спробуйте ще раз.");
-  }
-
-  // type 7 = UPDATE_MESSAGE. Кнопки гасить саме ендпоінт, а не воркфлоу:
-  // так вікно для повторного кліку закривається ще до старту рану.
   const embeds = Array.isArray(interaction.message?.embeds)
     ? interaction.message!.embeds!.slice(0, 9)
     : [];
+  const applicationId = interaction.application_id;
+  const interactionToken = interaction.token;
 
+  // Робота ПІСЛЯ відповіді: у Discord є лише 3 секунди, і вони не мають
+  // залежати від того, як швидко відповість Dify.
+  after(async () => {
+    let failure = "";
+    try {
+      const response = await fetch(webhookUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(process.env.DIFY_WEBHOOK_KEY
+            ? { Authorization: `Bearer ${process.env.DIFY_WEBHOOK_KEY}` }
+            : {}),
+        },
+        // Тільки ідентифікатори: вебхук-тригер Dify не має автентифікації, тому
+        // все, що тут поїде, вважається недовіреним і перевіряється у графі.
+        body: JSON.stringify({
+          plan_id: planId,
+          action,
+          user,
+          user_id: who.id ?? "",
+          channel_id: interaction.channel_id ?? interaction.channel?.id ?? "",
+          message_id: interaction.message?.id ?? "",
+          decided_at: new Date().toISOString(),
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) {
+        failure = `воркфлоу відповів HTTP ${response.status}`;
+        console.error("[discord] Dify webhook", response.status, await response.text());
+      }
+    } catch (error) {
+      failure = "воркфлоу недоступний";
+      console.error("[discord] Dify webhook недоступний", error);
+    }
+
+    if (!failure || !applicationId || !interactionToken) return;
+
+    // Не вдалося передати рішення — повертаємо кнопки й пишемо причину в картку.
+    // Токен взаємодії авторизує цей запит сам, бот-токен тут не потрібен.
+    try {
+      await fetch(
+        `${DISCORD_API}/webhooks/${applicationId}/${interactionToken}/messages/@original`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            embeds: [
+              ...embeds,
+              {
+                description: `⚠️ Рішення не передано: ${failure}. Натисни ще раз.`,
+                color: RED,
+              },
+            ],
+            components: decisionButtons(planId),
+          }),
+        },
+      );
+    } catch (error) {
+      console.error("[discord] не вдалося повернути кнопки", error);
+    }
+  });
+
+  // type 7 = UPDATE_MESSAGE. Кнопки гасить саме ендпоінт: так вікно для
+  // повторного кліку закривається ще до старту рану у Dify.
   return Response.json({
     type: 7,
     data: {
