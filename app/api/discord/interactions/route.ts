@@ -12,6 +12,7 @@ import {
 } from "@/lib/discord-gate";
 import {
   MOODS,
+  PROGRESS,
   THINKING,
   aislopConfig,
   askOrchestrator,
@@ -183,6 +184,28 @@ async function forward(
   }
 }
 
+/**
+ * Дописує ще одне повідомлення до тієї самої взаємодії. Потрібне, коли відповідь
+ * не влізла в одне: ліміт `content` — 2000 символів, опису ембеда — 4096.
+ * Токен взаємодії живе 15 хвилин і авторизує це сам, бот-токен не потрібен.
+ */
+async function followUp(
+  applicationId: string | undefined,
+  token: string | undefined,
+  body: unknown,
+) {
+  if (!applicationId || !token) return;
+  try {
+    await fetch(`${DISCORD_API}/webhooks/${applicationId}/${token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    console.error("[discord] не вдалося дописати повідомлення", error);
+  }
+}
+
 /** Редагує повідомлення, яким ми вже відповіли. Токен взаємодії авторизує сам. */
 async function editOriginal(
   applicationId: string | undefined,
@@ -224,7 +247,26 @@ function handleAislop(interaction: Interaction) {
   const applicationId = interaction.application_id;
   const interactionToken = interaction.token;
 
+  const header = `-# ${author}: ${query.slice(0, 180)}`;
+
   after(async () => {
+    // Питання з вибіркою по базі або запуск воркфлоу можуть тривати довше за
+    // кілька секунд. Без ознак життя це виглядає як зависання, тому дописуємо
+    // проміжні репліки — і гасимо їх, щойно прийшла відповідь, щоб таймер не
+    // перезаписав уже готовий текст.
+    let answered = false;
+    const timers = PROGRESS.map((variants, index) =>
+      setTimeout(
+        () => {
+          if (answered) return;
+          void editOriginal(applicationId, interactionToken, {
+            content: `${pick(variants)}\n${header}`,
+          });
+        },
+        6000 + index * 9000,
+      ),
+    );
+
     const result = await askOrchestrator({
       query,
       author,
@@ -235,19 +277,28 @@ function handleAislop(interaction: Interaction) {
       fresh,
     });
 
-    const body =
+    answered = true;
+    for (const timer of timers) clearTimeout(timer);
+
+    const messages =
       "answer" in result
         ? renderAnswer(result.answer)
-        : { content: `ой, зараз не вийшло: ${result.error} 🥲` };
+        : [{ content: `ой, зараз не вийшло: ${result.error} 🥲` }];
 
-    await editOriginal(applicationId, interactionToken, body);
+    // Перше повідомлення замінює репліку «думаю», решта дописуються слідом —
+    // саме в такому порядку, інакше хвіст з'явиться раніше за початок.
+    const [first, ...rest] = messages;
+    await editOriginal(applicationId, interactionToken, first);
+    for (const part of rest) {
+      await followUp(applicationId, interactionToken, part);
+    }
   });
 
   // Репліка «думаю» випадкова — саме вона робить кожен виклик несхожим на
   // попередній ще до того, як модель щось написала.
   return Response.json({
     type: 4,
-    data: { content: `${pick(THINKING)}\n-# ${author}: ${query.slice(0, 180)}` },
+    data: { content: `${pick(THINKING)}\n${header}` },
   });
 }
 

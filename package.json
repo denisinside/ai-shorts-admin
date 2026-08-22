@@ -5,8 +5,12 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node scripts/discord-commands.mjs --if-enabled",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "discord:register": "node scripts/discord-commands.mjs",
+    "discord:list": "node scripts/discord-commands.mjs --list",
+    "discord:delete": "node scripts/discord-commands.mjs --delete"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.1",

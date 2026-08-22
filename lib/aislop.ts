@@ -43,6 +43,20 @@ export const MOODS = [
   "зібрана й впевнена, без емодзі взагалі",
 ] as const;
 
+/**
+ * Проміжні репліки, поки відповідь ще збирається. Питання до бази з вибіркою
+ * або запуск воркфлоу можуть тривати довше за кілька секунд, і без ознак життя
+ * це виглядає як зависання.
+ *
+ * Прогрес умисно НЕ читається зі стріму подій Dify: `blocking` простіший і
+ * надійніший, а тут достатньо показати, що робота триває.
+ */
+export const PROGRESS = [
+  ["ще копаюсь, не тікай", "окей це трохи довше ніж я думала 🫠"],
+  ["так, майже", "ще секундочку, збираю думку"],
+  ["воно велике, зараз домучу", "ок ще трохи, тримайся"],
+] as const;
+
 /** Акценти ембеда — приглушені, щоб не сперечалися з картками гейта. */
 const ACCENTS = [0xf2a2c0, 0xc3a6ff, 0x8fd6c2, 0xffd48a, 0x9ec5ff, 0xf5a7a7];
 
@@ -50,26 +64,53 @@ export function pick<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-const CONTENT_LIMIT = 2000;
-const EMBED_LIMIT = 4096;
-
-function cut(text: string, limit: number): string {
-  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
-}
+const CONTENT_LIMIT = 1900; // 2000 мінус запас на службові символи
+const EMBED_LIMIT = 3800; // 4096 мінус той самий запас
 
 /**
- * Довгу відповідь віддаємо ембедом не заради краси: у `content` ліміт 2000
- * символів, а в описі ембеда — 4096. Для коротких кидаємо кубик, щоб подача
- * теж не була завжди однаковою.
+ * Ріже текст по межах абзаців, а не посеред слова. Обрив на півслові — саме те,
+ * від чого ми тут тікаємо, тож жорсткий розріз лишається аварійним шляхом.
  */
-export function renderAnswer(text: string) {
+function chunk(text: string, size: number): string[] {
+  if (text.length <= size) return [text];
+
+  const parts: string[] = [];
+  let rest = text;
+  while (rest.length > size) {
+    const window = rest.slice(0, size);
+    let cut = window.lastIndexOf("\n\n");
+    if (cut < size * 0.4) cut = window.lastIndexOf("\n");
+    if (cut < size * 0.4) cut = window.lastIndexOf(" ");
+    if (cut < size * 0.4) cut = size;
+    parts.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
+export type DiscordMessage = { content: string } | { embeds: { description: string; color: number }[] };
+
+/**
+ * Готує ОДНЕ або КІЛЬКА повідомлень. Раніше довга відповідь просто обрізалася
+ * трьома крапками, і людина не бачила половини — тепер хвіст їде наступними
+ * повідомленнями.
+ *
+ * Це не заміна ліміту `max_tokens` у моделі, а страховка після нього: обрив
+ * посеред речення лікується лімітом токенів, а не тут, бо тут ми вже нічого
+ * не можемо дописати за модель.
+ */
+export function renderAnswer(text: string): DiscordMessage[] {
   const clean = text.trim() || "щось я загубила думку, спитай ще раз";
+  // Довге завжди ембедом: там утричі більше місця, отже менше розривів.
   const asEmbed = clean.length > 1400 || Math.random() < 0.34;
 
-  if (asEmbed) {
-    return { embeds: [{ description: cut(clean, EMBED_LIMIT), color: pick(ACCENTS) }] };
-  }
-  return { content: cut(clean, CONTENT_LIMIT) };
+  if (!asEmbed) return chunk(clean, CONTENT_LIMIT).map((part) => ({ content: part }));
+
+  const color = pick(ACCENTS);
+  return chunk(clean, EMBED_LIMIT).map((part) => ({
+    embeds: [{ description: part, color }],
+  }));
 }
 
 export type AislopConfig = {
