@@ -10,6 +10,14 @@ import {
   reviseNote,
   type GateTarget,
 } from "@/lib/discord-gate";
+import {
+  MOODS,
+  THINKING,
+  aislopConfig,
+  askOrchestrator,
+  pick,
+  renderAnswer,
+} from "@/lib/aislop";
 
 // node:crypto недоступний в edge-рантаймі, а без перевірки підпису Discord
 // навіть не збереже Interactions Endpoint URL.
@@ -43,8 +51,11 @@ const DISCORD_API = "https://discord.com/api/v10";
 
 // Типи взаємодій Discord, які нас стосуються.
 const PING = 1;
+const APPLICATION_COMMAND = 2;
 const MESSAGE_COMPONENT = 3;
 const MODAL_SUBMIT = 5;
+
+const AISLOP_COMMAND = "aislop";
 
 type Interaction = {
   type?: number;
@@ -55,8 +66,17 @@ type Interaction = {
   message?: { id?: string; embeds?: unknown[] };
   member?: { user?: { username?: string; id?: string } };
   user?: { username?: string; id?: string };
-  data?: { custom_id?: string; components?: unknown };
+  data?: {
+    custom_id?: string;
+    components?: unknown;
+    name?: string;
+    options?: { name?: string; value?: unknown }[];
+  };
 };
+
+function commandOption(interaction: Interaction, name: string): unknown {
+  return interaction.data?.options?.find((o) => o.name === name)?.value;
+}
 
 function verifySignature(raw: string, request: Request, publicKey: string): boolean {
   const signature = request.headers.get("x-signature-ed25519");
@@ -93,6 +113,8 @@ export async function GET() {
   const publicKey = process.env.DISCORD_PUBLIC_KEY ?? "";
 
   const problems: string[] = [];
+  if (!aislopConfig().key)
+    problems.push("DIFY_ORCHESTRATOR_API_KEY не заданий — /aislop не відповідатиме");
   if (!publicKey) problems.push("DISCORD_PUBLIC_KEY не заданий — Discord отримає 500");
   else if (publicKey.trim().length !== 64)
     problems.push(`DISCORD_PUBLIC_KEY має бути 64 hex-символи, а не ${publicKey.trim().length}`);
@@ -107,6 +129,10 @@ export async function GET() {
     },
     gates: gateDiagnostics(),
     dify_webhook_key: { present: Boolean(process.env.DIFY_WEBHOOK_KEY) },
+    aislop: {
+      api_base: aislopConfig().base,
+      api_key: { present: Boolean(aislopConfig().key) },
+    },
     ok: problems.length === 0,
     problems,
   });
@@ -175,6 +201,56 @@ async function editOriginal(
   }
 }
 
+/**
+ * `/aislop <запит>` — розмова з оркестратором.
+ *
+ * Відповідаємо ТИПОМ 4, а не 5 (deferred), навмисно: deferred показує
+ * безлике системне «застосунок думає», а тип 4 дозволяє одразу сказати щось
+ * своїм голосом і потім замінити це відповіддю. Три секунди на це вистачає
+ * з запасом, бо в Dify ми йдемо вже після відповіді, у `after()`.
+ */
+function handleAislop(interaction: Interaction) {
+  if (interaction.data?.name !== AISLOP_COMMAND) {
+    return ephemeral("Невідома команда.");
+  }
+
+  const query = String(commandOption(interaction, "запит") ?? "").trim();
+  const fresh = commandOption(interaction, "нова") === true;
+  if (!query) return ephemeral("Порожній запит — нема на що відповідати.");
+
+  const who = interaction.member?.user ?? interaction.user ?? {};
+  const author = who.username ?? "хтось";
+  const channelId = interaction.channel_id ?? interaction.channel?.id ?? "global";
+  const applicationId = interaction.application_id;
+  const interactionToken = interaction.token;
+
+  after(async () => {
+    const result = await askOrchestrator({
+      query,
+      author,
+      // Пам'ять прив'язана до КАНАЛУ, не до людини: у робочому чаті контекст
+      // спільний, і відповідь на «а що там далі» має враховувати сусідні репліки.
+      user: `discord:${channelId}`,
+      mood: pick(MOODS),
+      fresh,
+    });
+
+    const body =
+      "answer" in result
+        ? renderAnswer(result.answer)
+        : { content: `ой, зараз не вийшло: ${result.error} 🥲` };
+
+    await editOriginal(applicationId, interactionToken, body);
+  });
+
+  // Репліка «думаю» випадкова — саме вона робить кожен виклик несхожим на
+  // попередній ще до того, як модель щось написала.
+  return Response.json({
+    type: 4,
+    data: { content: `${pick(THINKING)}\n-# ${author}: ${query.slice(0, 180)}` },
+  });
+}
+
 export async function POST(request: Request) {
   // Підпис перевіряється над СИРИМ тілом: розпарсений і зібраний назад JSON
   // дасть інші байти й перевірка провалиться.
@@ -197,6 +273,11 @@ export async function POST(request: Request) {
   }
 
   if (interaction.type === PING) return Response.json({ type: 1 });
+
+  if (interaction.type === APPLICATION_COMMAND) {
+    return handleAislop(interaction);
+  }
+
   if (interaction.type !== MESSAGE_COMPONENT && interaction.type !== MODAL_SUBMIT) {
     return Response.json({ type: 1 });
   }
