@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase";
-import { deleteDay3Assets } from "@/app/actions/day3";
+import { deleteDay3Article } from "@/app/actions/day3";
 import Day3Form from "@/components/Day3Form";
-import type { Day3Assets } from "@/lib/day-tables";
+import type { Day3Article } from "@/lib/day-tables";
 import { Card } from "@/components/ui/Card";
 import { ConfirmAction } from "@/components/ui/ConfirmAction";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -20,11 +20,11 @@ export default async function EditDay3Page({
 
   const supabase = createClient();
   const { data: record, error } = await supabase
-    .from("day3_assets")
+    .from("day3_article")
     .select("*")
     .eq("id", recordId)
     .eq("project_id", id)
-    .returns<Day3Assets[]>()
+    .returns<Day3Article[]>()
     .maybeSingle();
 
   if (error) throw new Error(error.message);
@@ -35,13 +35,13 @@ export default async function EditDay3Page({
       <PageHeader
         backHref={`/projects/${id}`}
         backLabel="До проєкту"
-        eyebrow="День 3 · Матеріали"
-        title="Редагування запису"
+        eyebrow="День 3 · Стаття"
+        title="Редагування статті"
         actions={
           <ConfirmAction
-            action={deleteDay3Assets.bind(null, id, recordId)}
-            title="Видалити матеріали?"
-            description="Запис буде видалено назавжди. Дію не можна скасувати."
+            action={deleteDay3Article.bind(null, id, recordId)}
+            title="Видалити статтю?"
+            description="Статтю буде видалено назавжди. Файли ілюстрацій лишаться у Storage. Дію не можна скасувати."
             trigger={
               <>
                 <TrashIcon className="h-4 w-4" />

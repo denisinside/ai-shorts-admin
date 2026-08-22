@@ -252,17 +252,178 @@ export function toSelectedTrend(value: unknown): SelectedTrend | null {
   return parsed as SelectedTrend;
 }
 
-export type Day3Assets = {
+/**
+ * Розділ статті. Контракт: supabase/day3-article-contract.md §5.
+ * Один елемент = один розділ outline Дня 2, у тому ж порядку.
+ */
+export type ArticleSection = {
+  h2?: string;
+  /** Markdown; підрозділи через `###` — другий рівень зайнятий h2 розділу. */
+  body_md?: string;
+  /** Публічний URL Supabase Storage. Рендериться В КІНЦІ розділу. */
+  image_url?: string | null;
+  /** З чого зроблено картинку — без цього перегенерувати її неможливо. */
+  image_prompt?: string | null;
+  image_alt?: string | null;
+  /** Фактична довжина, рахує код воркфлоу, не модель. */
+  words?: number;
+  /** Копія source_urls свого розділу плану — ланцюг чесності Дня 1 → 2 → 3. */
+  source_urls?: string[];
+  /** Індекс розділу outline, з якого виріс цей; FK на елемент масиву не вказує. */
+  plan_index?: number;
+};
+
+export type ArticleSeo = {
+  seo_title?: string;
+  meta_description?: string;
+  slug?: string;
+  og_title?: string;
+  og_description?: string;
+  keywords?: string[];
+};
+
+/** Оцінка одного критерію рубрики. Поля різні, спільне лише `pass`. */
+export type QualityCriterion = { pass?: boolean } & Record<string, unknown>;
+
+/**
+ * Телеметрія прогону — вхід для таблиці «до/після».
+ * `tokens_total` приходить з Dify Logs окремо: воркфлоу не бачить власного
+ * споживання токенів, тому в графі чесно міряється лише час.
+ */
+export type ArticleMetrics = {
+  workflow_run_id?: string;
+  elapsed_ms?: number;
+  llm_calls?: number;
+  image_calls?: number;
+  models?: Record<string, number>;
+  /** Скільки розділів повернув редактор. Завжди 0 = редактор нічого не ловить. */
+  rewrites?: number;
+  /** `dify` означає, що аплоад у Storage не вдався і посилання протухне. */
+  images_stored?: "supabase" | "dify";
+  tokens_total?: number | null;
+  quality?: Record<string, QualityCriterion | number>;
+};
+
+/** Який пайплайн зробив рядок — на цьому тримається таблиця порівняння. */
+export type ArticlePipeline = "baseline" | "optimized";
+
+export const PIPELINE_LABELS: Record<ArticlePipeline, string> = {
+  baseline: "Baseline",
+  optimized: "Optimized",
+};
+
+export const PIPELINE_STYLES: Record<ArticlePipeline, string> = {
+  baseline: "text-ink-muted ring-white/12",
+  optimized: "bg-arc/14 text-arc ring-arc/30",
+};
+
+/**
+ * Стаття Дня 3. На відміну від Днів 1 і 2, рядків на проєкт навмисно багато:
+ * baseline і optimized пишуть у ту саму таблицю, і різниця між ними — предмет
+ * дня. Контракт: supabase/day3-article-contract.md
+ */
+export type Day3Article = {
   id: string;
   project_id: string;
+  /** null означає, що план видалили — стаття лишається. */
+  day2_plan_id: string | null;
   run_id: string;
-  script: string | null;
-  hook_variants: unknown;
-  /** Підказки ілюстрацій — по одній на розділ outline. Колонка була в базі
-   *  від початку, але панель про неї не знала. */
-  shot_hints: unknown;
+  pipeline: ArticlePipeline;
+  /** Мітка ітерації оптимізації: opt-v1, opt-v2… */
+  variant: string | null;
+  title: string;
   thumbnail_url: string | null;
+  /** Markdown без власного заголовка — H1 живе в `title`. */
+  intro: string;
+  sections: unknown;
+  conclusion_h2: string;
+  conclusion: string;
+  cta: string | null;
+  seo: unknown;
+  // ---- HITL-гейт: дзеркало Днів 1 і 2 ----
+  approved: boolean;
+  approved_by: string | null;
+  decided_at: string | null;
+  needs_review: boolean;
+  review_reason: string | null;
+  fallback_used: boolean;
+  fallback_reason: string | null;
+  discord_message_id: string | null;
+  metrics: unknown;
+  created_at: string;
 };
+
+export function toSections(value: unknown): ArticleSection[] {
+  return toArray(value).map((item) =>
+    typeof item === "string" ? { body_md: item } : (item as ArticleSection),
+  );
+}
+
+export function toSeo(value: unknown): ArticleSeo | null {
+  const parsed = parseMaybeJson(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  return parsed as ArticleSeo;
+}
+
+export function toMetrics(value: unknown): ArticleMetrics | null {
+  const parsed = parseMaybeJson(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  return parsed as ArticleMetrics;
+}
+
+/**
+ * Скільки критеріїв рубрики пройдено. Читає готовий `score`, а якщо його
+ * немає — рахує по вкладених `pass`: рядки, записані до появи score, теж
+ * мають щось показувати.
+ */
+export function qualityScore(
+  metrics: ArticleMetrics | null,
+): { passed: number; total: number } | null {
+  const quality = metrics?.quality;
+  if (!quality) return null;
+
+  const criteria = Object.entries(quality).filter(
+    ([key, value]) =>
+      key !== "score" && value !== null && typeof value === "object",
+  ) as [string, QualityCriterion][];
+
+  if (criteria.length === 0) return null;
+
+  const passed =
+    typeof quality.score === "number"
+      ? quality.score
+      : criteria.filter(([, value]) => value.pass === true).length;
+
+  return { passed, total: criteria.length };
+}
+
+/** Довжина статті в словах: сума розділів + вступ і висновок. */
+export function articleWords(article: Day3Article): number {
+  const countWords = (text: string) =>
+    text.trim() ? text.trim().split(/\s+/).length : 0;
+
+  return (
+    countWords(article.intro) +
+    countWords(article.conclusion) +
+    toSections(article.sections).reduce(
+      (sum, section) =>
+        sum + (section.words ?? countWords(section.body_md ?? "")),
+      0,
+    )
+  );
+}
+
+/** «3 хв 4 с» — цифра з metrics читабельно. */
+export function formatElapsed(ms: number | undefined): string | null {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return null;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds} с`;
+  return `${Math.floor(seconds / 60)} хв ${seconds % 60} с`;
+}
 
 export type Day4Video = {
   id: string;

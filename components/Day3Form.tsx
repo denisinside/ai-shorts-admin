@@ -1,29 +1,41 @@
 "use client";
 
 import { useActionState } from "react";
-import { createDay3Assets, updateDay3Assets } from "@/app/actions/day3";
+import { createDay3Article, updateDay3Article } from "@/app/actions/day3";
 import { initialFormState } from "@/lib/form-state";
 import {
   toJsonText,
   toJsonTextOrEmpty,
-  type Day3Assets,
+  toMetrics,
+  type Day3Article,
 } from "@/lib/day-tables";
-import { Field, TextField, Textarea } from "./ui/Field";
+import { Field, SelectField, TextField, Textarea } from "./ui/Field";
 import { JsonTextarea } from "./ui/JsonTextarea";
 import { FormFooter } from "./ui/FormFooter";
+
+const PIPELINE_OPTIONS = [
+  { value: "baseline", label: "Baseline — перша робоча версія" },
+  { value: "optimized", label: "Optimized — оптимізований флоу" },
+];
 
 export default function Day3Form({
   projectId,
   record,
 }: {
   projectId: string;
-  record?: Day3Assets | null;
+  record?: Day3Article | null;
 }) {
   const action = record
-    ? updateDay3Assets.bind(null, projectId, record.id)
-    : createDay3Assets.bind(null, projectId);
+    ? updateDay3Article.bind(null, projectId, record.id)
+    : createDay3Article.bind(null, projectId);
 
   const [state, formAction, pending] = useActionState(action, initialFormState);
+
+  const metrics = toMetrics(record?.metrics);
+  // Токени показуємо окремим полем, а решту metrics — як JSON: усе інше
+  // пише воркфлоу, а це єдина цифра, яку доводиться переносити руками.
+  const tokensDefault =
+    typeof metrics?.tokens_total === "number" ? String(metrics.tokens_total) : "";
 
   return (
     <form action={formAction} className="space-y-5">
@@ -32,42 +44,44 @@ export default function Day3Form({
         name="run_id"
         required
         defaultValue={state.values?.run_id ?? record?.run_id ?? ""}
-        hint="Ідентифікатор запуску пайплайну"
+        hint="day3-base-… або day3-opt-… — формат у контракті §9"
         className="field-mono"
       />
 
-      <Field
-        label="Текст статті"
-        htmlFor="script"
-        hint="Markdown; пишеться по розділах outline із Дня 2"
-      >
-        <Textarea
-          id="script"
-          name="script"
-          rows={14}
-          required
-          defaultValue={state.values?.script ?? record?.script ?? ""}
+      <div className="grid gap-5 sm:grid-cols-2">
+        <SelectField
+          label="Пайплайн"
+          name="pipeline"
+          options={PIPELINE_OPTIONS}
+          defaultValue={state.values?.pipeline ?? record?.pipeline ?? "baseline"}
+          hint="Що саме порівнюємо в таблиці «до/після»"
         />
-      </Field>
+        <TextField
+          label="Варіант"
+          name="variant"
+          placeholder="opt-v2"
+          defaultValue={state.values?.variant ?? record?.variant ?? ""}
+          hint="Мітка ітерації оптимізації, якщо їх кілька"
+        />
+      </div>
 
-      <JsonTextarea
-        name="hook_variants"
-        label="Варіанти вступу (JSON)"
-        rows={8}
+      <TextField
+        label="ID плану Дня 2"
+        name="day2_plan_id"
         defaultValue={
-          state.values?.hook_variants ?? toJsonText(record?.hook_variants)
+          state.values?.day2_plan_id ?? record?.day2_plan_id ?? ""
         }
-        hint="Обрані з гачків Дня 2 і дописані до повного абзацу"
+        hint="За яким планом писали — без нього стаття ні з чим не звіряється"
+        className="field-mono"
       />
 
-      <JsonTextarea
-        name="shot_hints"
-        label="Підказки ілюстрацій (JSON)"
-        rows={8}
-        defaultValue={
-          state.values?.shot_hints ?? toJsonTextOrEmpty(record?.shot_hints)
-        }
-        hint="По одній на розділ outline — промпт або опис зображення"
+      {/* ---------------------------------------------- блок вступу */}
+      <TextField
+        label="Заголовок H1"
+        name="title"
+        required
+        defaultValue={state.values?.title ?? record?.title ?? ""}
+        hint="Заголовок сторінки для читача — не seo_title і не робоча назва плану"
       />
 
       <TextField
@@ -75,16 +89,96 @@ export default function Day3Form({
         name="thumbnail_url"
         type="url"
         inputMode="url"
-        placeholder="https://…"
+        placeholder="https://…/storage/v1/object/public/article-images/…"
         defaultValue={
           state.values?.thumbnail_url ?? record?.thumbnail_url ?? ""
         }
       />
 
+      <Field
+        label="Текст вступу"
+        htmlFor="intro"
+        hint="Markdown, БЕЗ власного заголовка — H1 уже є окремим полем"
+      >
+        <Textarea
+          id="intro"
+          name="intro"
+          rows={6}
+          required
+          defaultValue={state.values?.intro ?? record?.intro ?? ""}
+        />
+      </Field>
+
+      {/* ---------------------------------------------- тіло */}
+      <JsonTextarea
+        name="sections"
+        label="Розділи (JSON)"
+        rows={16}
+        defaultValue={state.values?.sections ?? toJsonText(record?.sections)}
+        hint="[{h2, body_md, image_url, image_prompt, image_alt, words, source_urls, plan_index}] — по одному на розділ outline"
+      />
+
+      {/* ---------------------------------------------- висновок */}
+      <TextField
+        label="Заголовок висновку"
+        name="conclusion_h2"
+        required
+        defaultValue={
+          state.values?.conclusion_h2 ?? record?.conclusion_h2 ?? ""
+        }
+      />
+
+      <Field
+        label="Текст висновку"
+        htmlFor="conclusion"
+        hint="Без підрозділів і без картинки — така його форма"
+      >
+        <Textarea
+          id="conclusion"
+          name="conclusion"
+          rows={6}
+          required
+          defaultValue={state.values?.conclusion ?? record?.conclusion ?? ""}
+        />
+      </Field>
+
+      <TextField
+        label="CTA"
+        name="cta"
+        defaultValue={state.values?.cta ?? record?.cta ?? ""}
+        hint="З outline.cta Дня 2"
+      />
+
+      {/* ---------------------------------------------- мета й метрики */}
+      <JsonTextarea
+        name="seo"
+        label="SEO (JSON)"
+        rows={8}
+        defaultValue={state.values?.seo ?? toJsonTextOrEmpty(record?.seo)}
+        hint="{seo_title, meta_description, slug, og_title, og_description, keywords[]}"
+      />
+
+      <TextField
+        label="Токени прогону"
+        name="tokens_total"
+        inputMode="numeric"
+        defaultValue={state.values?.tokens_total ?? tokensDefault}
+        hint="З Dify Logs: воркфлоу не бачить власного споживання токенів. Вливається в metrics.tokens_total"
+        className="field-mono"
+      />
+
+      <JsonTextarea
+        name="metrics"
+        label="Метрики (JSON)"
+        rows={10}
+        defaultValue={state.values?.metrics ?? toJsonTextOrEmpty(record?.metrics)}
+        hint="Пише воркфлоу: elapsed_ms, llm_calls, models, rewrites, quality. Правити руками зазвичай не треба"
+      />
+
       <FormFooter
         error={state?.error}
         pending={pending}
-        submitLabel={record ? "Зберегти зміни" : "Створити запис"}
+        submitLabel={record ? "Зберегти зміни" : "Створити статтю"}
         cancelHref={`/projects/${projectId}`}
       />
     </form>

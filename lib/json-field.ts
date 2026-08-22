@@ -13,7 +13,7 @@ export function parseJsonField(
 }
 
 /**
- * Для NOT NULL jsonb-колонок (day2_plan.hook_formats, day3_assets.hook_variants):
+ * Для NOT NULL jsonb-колонок (day2_plan.hook_formats, day3_article.sections):
  * порожнє поле має стати [], а не null — інакше Postgres відповідає
  * 23502 not_null_violation, і користувач бачить сирий текст помилки драйвера.
  */

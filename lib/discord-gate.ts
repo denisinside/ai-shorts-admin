@@ -39,6 +39,15 @@ export const GATES = {
     webhook: process.env.DIFY_WEBHOOK_DAY2 ?? process.env.DIFY_WEBHOOK_URL,
     actions: ["approve", "reject"],
   },
+  // Гейт статті живе лише в апці optimized: baseline існує, щоб дати цифри
+  // «до», і його рядки затверджуються кнопкою в панелі. `revise` тут немає
+  // навмисно — для статті «правки» означають повний перезапуск, а це окрема
+  // гілка з власним revision_of, як у Дні 1.
+  day3: {
+    label: "Стаття",
+    webhook: process.env.DIFY_WEBHOOK_DAY3,
+    actions: ["approve", "reject"],
+  },
 } as const satisfies Record<string, Gate>;
 
 export type GateDomain = keyof typeof GATES;

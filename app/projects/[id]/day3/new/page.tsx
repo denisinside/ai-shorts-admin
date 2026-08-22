@@ -3,7 +3,7 @@ import Day3Form from "@/components/Day3Form";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
 
-export const metadata: Metadata = { title: "Новий запис · День 3" };
+export const metadata: Metadata = { title: "Нова стаття · День 3" };
 
 export default async function NewDay3Page({
   params,
@@ -17,8 +17,8 @@ export default async function NewDay3Page({
       <PageHeader
         backHref={`/projects/${id}`}
         backLabel="До проєкту"
-        eyebrow="День 3 · Матеріали"
-        title="Новий запис"
+        eyebrow="День 3 · Стаття"
+        title="Нова стаття"
       />
       <Card className="p-5 sm:p-6">
         <Day3Form projectId={id} />

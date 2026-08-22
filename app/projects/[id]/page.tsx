@@ -3,7 +3,11 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase";
 import { deleteDay1Trends } from "@/app/actions/day1";
 import { approvePlan, deleteDay2Plan, rejectPlan } from "@/app/actions/day2";
-import { deleteDay3Assets } from "@/app/actions/day3";
+import {
+  approveArticle,
+  deleteDay3Article,
+  rejectArticle,
+} from "@/app/actions/day3";
 import { deleteDay4Video } from "@/app/actions/day4";
 import {
   PLATFORM_LABELS,
@@ -16,14 +20,21 @@ import {
   toOutline,
   toResearchInput,
   toTrends,
+  articleWords,
+  toSections,
   type Day1Trends,
   type Day2Plan,
-  type Day3Assets,
+  type Day3Article,
   type Day4Video,
   type ResearchInput,
 } from "@/lib/day-tables";
 import Pipeline, { type PipelineStep } from "@/components/Pipeline";
 import PlanDetails from "@/components/PlanDetails";
+import ArticleView from "@/components/ArticleView";
+import {
+  ArticleMetricsRow,
+  Day3Versions,
+} from "@/components/Day3Versions";
 import { GateBadges } from "@/components/GateStatus";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { LinkButton } from "@/components/ui/Button";
@@ -43,18 +54,6 @@ import {
   TrendIcon,
   VideoIcon,
 } from "@/components/ui/icons";
-
-function formatJsonList(value: unknown): string[] {
-  return toArray(value).map((item) => {
-    if (typeof item === "string") return item;
-    if (item && typeof item === "object") {
-      return Object.entries(item as Record<string, unknown>)
-        .map(([key, val]) => `${key}: ${val}`)
-        .join(", ");
-    }
-    return String(item);
-  });
-}
 
 function countItems(value: unknown): number {
   return toArray(value).length;
@@ -124,17 +123,20 @@ async function loadProject(id: string) {
         .limit(1)
         .returns<Day2Plan[]>()
         .maybeSingle(),
+      // День 3 — єдиний, де рядків на проєкт навмисно багато: baseline і
+      // optimized пишуть у ту саму таблицю, і різниця між ними — предмет дня.
+      // limit(1) показував би лише найновішу, тобто рівно те, що не дозволяє
+      // нічого порівняти.
       supabase
-        .from("day3_assets")
+        .from("day3_article")
         .select("*")
         .eq("project_id", id)
         .order("created_at", { ascending: false })
         // Один запуск пише всі рядки з однаковим created_at, тож без
-        // вторинного ключа «найновіший» вибирався недетерміновано
+        // вторинного ключа порядок недетермінований
         .order("id", { ascending: false })
-        .limit(1)
-        .returns<Day3Assets[]>()
-        .maybeSingle(),
+        .limit(20)
+        .returns<Day3Article[]>(),
       supabase
         .from("day4_video")
         .select("*")
@@ -162,7 +164,7 @@ async function loadProject(id: string) {
     project: projectResult.data,
     day1: day1Result.data,
     day2: day2Result.data,
-    day3: day3Result.data,
+    day3: day3Result.data ?? [],
     day4: day4Result.data,
   };
 }
@@ -186,19 +188,27 @@ export async function generateMetadata({
 
 export default async function ProjectDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ article?: string }>;
 }) {
   const { id } = await params;
+  const { article: requestedArticle } = await searchParams;
   const { project, day1, day2, day3, day4 } = await loadProject(id);
 
   if (!project) notFound();
+
+  // Яку версію статті показуємо. Вибір у query-параметрі, а не в стані
+  // компонента: посилання на конкретний прогін має бути можливо кинути в чат.
+  // Невідомий id мовчки падає на найновішу — параметр міг протухнути.
+  const article =
+    day3.find((row) => row.id === requestedArticle) ?? day3[0] ?? null;
 
   const trends = toTrends(day1?.trends);
   const rawTrends = day1 ? unexpectedShape(day1.trends) : null;
   const researchInput = toResearchInput(day1?.research_input);
   const planSections = toOutline(day2?.outline)?.sections?.length ?? 0;
-  const shotHints = formatJsonList(day3?.shot_hints);
   const shotlistCount = countItems(day4?.shotlist);
 
   const steps: PipelineStep[] = [
@@ -241,13 +251,18 @@ export default async function ProjectDetailPage({
     {
       id: "day-3",
       day: 3,
-      title: "Матеріали",
-      summary: day3
-        ? day3.script?.trim()
-          ? "Сценарій готовий"
-          : "Без сценарію"
+      title: "Стаття",
+      summary: article
+        ? `${day3.length > 1 ? `${day3.length} версії · ` : ""}${
+            article.approved
+              ? "затверджено"
+              : article.decided_at
+                ? "відхилено"
+                : "на розгляді"
+          }`
         : "Немає даних",
-      done: Boolean(day3),
+      // Як і в Дні 1: чернетка, якої ніхто не бачив, не закриває день
+      done: Boolean(article?.approved),
       icon: AssetIcon,
     },
     {
@@ -520,72 +535,95 @@ export default async function ProjectDetailPage({
         <Card id="day-3" className="scroll-mt-6">
           <CardHeader
             eyebrow="День 3"
-            title="Матеріали"
+            title="Стаття"
             actions={
-              <DayActions
-                editHref={day3 ? `/projects/${id}/day3/${day3.id}/edit` : undefined}
-                addHref={day3 ? undefined : `/projects/${id}/day3/new`}
-                deleteAction={
-                  day3 ? deleteDay3Assets.bind(null, id, day3.id) : undefined
-                }
-                deleteTitle="Видалити матеріали?"
-              />
+              <>
+                {day3.length > 1 && (
+                  <LinkButton
+                    href={`/projects/${id}/day3/compare`}
+                    variant="ghost"
+                    size="sm"
+                  >
+                    Порівняти
+                  </LinkButton>
+                )}
+                <DayActions
+                  editHref={
+                    article
+                      ? `/projects/${id}/day3/${article.id}/edit`
+                      : undefined
+                  }
+                  addHref={`/projects/${id}/day3/new`}
+                  deleteAction={
+                    article
+                      ? deleteDay3Article.bind(null, id, article.id)
+                      : undefined
+                  }
+                  deleteTitle="Видалити статтю?"
+                />
+              </>
             }
           />
           <CardBody className="space-y-4">
-            {!day3 ? (
-              <Placeholder>Матеріали ще не додані</Placeholder>
+            {!article ? (
+              <Placeholder>Статті ще немає</Placeholder>
             ) : (
               <>
-                <div>
-                  <p className="text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-ink-faint">
-                    Текст статті
-                  </p>
-                  <div className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-xl bg-white/4 p-3.5 text-sm leading-relaxed text-ink-muted ring-1 ring-inset ring-white/8">
-                    {day3.script?.trim() || "Тексту ще немає"}
-                  </div>
-                </div>
+                <Day3Versions
+                  projectId={id}
+                  articles={day3}
+                  activeId={article.id}
+                />
 
-                {shotHints.length > 0 && (
-                  <div>
-                    <p className="text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-ink-faint">
-                      Підказки ілюстрацій
-                    </p>
-                    <ol className="mt-2 space-y-1.5">
-                      {shotHints.map((hint, index) => (
-                        <li
-                          key={index}
-                          className="flex gap-2.5 text-sm text-ink-muted"
-                        >
-                          <span className="tabular shrink-0 text-ink-faint">
-                            {index + 1}.
-                          </span>
-                          {hint}
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
+                <GateBadges
+                  gate={article}
+                  fallbackReviewText="Статтю треба переглянути перед затвердженням"
+                />
 
-                <div>
-                  <p className="text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-ink-faint">
-                    Обкладинка
-                  </p>
-                  {day3.thumbnail_url ? (
-                    // Довільні зовнішні URL із пайплайну — next/image тут
-                    // вимагав би вносити кожен хост у remotePatterns
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={day3.thumbnail_url}
-                      alt="Обкладинка"
-                      className="mt-2 h-44 w-full rounded-xl object-cover ring-1 ring-inset ring-white/10"
-                    />
-                  ) : (
-                    <div className="mt-2 flex h-44 w-full items-center justify-center rounded-xl bg-white/4 text-sm text-ink-faint ring-1 ring-inset ring-white/8">
-                      Обкладинки немає
-                    </div>
+                <ArticleMetricsRow article={article} />
+
+                <div className="flex flex-wrap items-center gap-2 text-xs text-ink-faint">
+                  <span className="tabular">{article.run_id}</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="tabular">
+                    {toSections(article.sections).length} розділів
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span className="tabular">
+                    ~{articleWords(article)} слів
+                  </span>
+                  {!article.day2_plan_id && (
+                    <Badge className="bg-warn/14 text-warn ring-warn/30">
+                      План видалено
+                    </Badge>
                   )}
                 </div>
+
+                <ArticleView article={article} />
+
+                {/* Затвердити можна лише те, по чому рішення ще немає:
+                    кнопка в Discord і кнопка тут пишуть в одні колонки, і
+                    хто натиснув першим — той і ухвалив */}
+                {!article.decided_at && (
+                  <div className="flex flex-wrap gap-2 border-t border-white/6 pt-4">
+                    <form action={approveArticle.bind(null, id, article.id)}>
+                      <SubmitButton pendingLabel="Затверджуємо…" size="sm">
+                        <CheckIcon className="h-4 w-4" />
+                        Затвердити статтю
+                      </SubmitButton>
+                    </form>
+                    <form action={rejectArticle.bind(null, id, article.id)}>
+                      <SubmitButton
+                        pendingLabel="Відхиляємо…"
+                        size="sm"
+                        variant="danger"
+                      >
+                        <CloseIcon className="h-4 w-4" />
+                        Відхилити
+                      </SubmitButton>
+                    </form>
+                  </div>
+                )}
               </>
             )}
           </CardBody>
