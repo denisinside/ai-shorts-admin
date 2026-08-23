@@ -2,7 +2,6 @@ import {
   articleWords,
   toSections,
   toSeo,
-  type ArticlePipeline,
   type ArticleSection,
   type ArticleSeo,
   type Day3Article,
@@ -56,7 +55,9 @@ export type ReaderArticle = {
   // ---- походження: чернетку читач мусить бачити як чернетку ----
   /** `true` — картка з макета, за нею немає рядка в базі. */
   demo: boolean;
-  pipeline: ArticlePipeline | null;
+  /** Який прогін це написав. Лишається в моделі для діагностики, у верстку
+   *  не йде: читачеві «optimized / opt-v2» не означає нічого. */
+  pipeline: string | null;
   variant: string | null;
   approved: boolean;
   needsReview: boolean;
@@ -177,6 +178,42 @@ export function toReaderArticle(row: ArticleRow): ReaderArticle {
     projectId: row.project_id,
     words,
   };
+}
+
+/**
+ * Термін глосарія. Своєї таблиці термінів у проєкті немає, і заводити її під
+ * одне вікно було б дорого — але `seo.keywords` кожної статті це вже, по суті,
+ * і є перелік того, про що вона. Тому глосарій збирається з них.
+ *
+ * `count` — у скількох статтях термін зустрівся. Саме він робить вікно
+ * корисним: видно, навколо чого блог обертається, а не просто список слів.
+ */
+export type GlossaryTerm = { term: string; count: number };
+
+export function glossaryTerms(articles: ReaderArticle[]): GlossaryTerm[] {
+  const seen = new Map<string, GlossaryTerm>();
+
+  for (const article of articles) {
+    // Ключі однієї статті можуть повторюватися між собою — рахуємо статті,
+    // а не входження, інакше одна стаття накрутила б собі вагу
+    const unique = new Set(
+      (article.seo?.keywords ?? [])
+        .map((keyword) => keyword.trim())
+        .filter((keyword) => keyword.length > 1),
+    );
+
+    for (const keyword of unique) {
+      const key = keyword.toLowerCase();
+      const existing = seen.get(key);
+      if (existing) existing.count += 1;
+      // Показуємо перше написання: пайплайн пише то з великої, то з малої
+      else seen.set(key, { term: keyword, count: 1 });
+    }
+  }
+
+  return [...seen.values()].sort((a, b) =>
+    a.term.localeCompare(b.term, "uk"),
+  );
 }
 
 /** Фасети стрічки. Це не колонки бази, а те, що читач хоче звузити. */

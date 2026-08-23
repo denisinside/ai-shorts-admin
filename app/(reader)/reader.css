@@ -68,10 +68,9 @@ a:focus-visible {
 /* --------------------------------------------------------------- робочий стіл */
 .desktop-shell {
   min-height: 100svh;
-  /* `auto`, а не `hidden`: вікна розставлені абсолютно під композицію макета, і
-     на низькому екрані (1440×700) стрічка інакше опинялася під таскбаром без
-     жодного способу до неї дістатися. Смуга з'являється лише коли справді не
-     влазить — див. min-height у .desktop-area. */
+  /* `auto`, а не `hidden`, як запобіжник: композиція стискається медіазапитами
+     по висоті й у нормі поміщається у вікно, тому смуги не видно. Але якщо
+     вміст усе-таки не вліз, краще дати до нього доскролити, ніж обрізати. */
   overflow: auto;
   position: relative;
   background-image: linear-gradient(
@@ -213,10 +212,13 @@ a:focus-visible {
 
 /* ------------------------------------------------------------------- вікна */
 .desktop-area {
-  /* 880px — низ стрічки (568 + голова + картки + точки) плюс місце під таскбар.
-     Абсолютні вікна не розтягують контейнер, тому висоту треба задати прямо:
-     без неї на короткому екрані не було б чого скролити. */
-  min-height: max(100svh, 880px);
+  /* Рівно висота вікна — і жодного примусового запасу.
+     Таскбар зафіксований до вікна, а стрічка прив'язана до низу цього блоку:
+     доки блок дорівнює вікну, вони не можуть перетнутися. Варіант «зробити
+     стіл вищим і дати скрол» це ламало: до прокручування вниз таскбар усе одно
+     лежав поверх карток. Тому на низькому екрані стискається композиція
+     (див. медіазапити по height), а не з'являється скрол. */
+  min-height: 100svh;
   position: relative;
   padding-top: 132px;
   padding-bottom: 118px;
@@ -274,6 +276,35 @@ a:focus-visible {
 
 .window-controls button:last-child:hover {
   background: #ee5b66;
+}
+
+/* -------------------------------------------------------- на весь екран
+   Кнопка «□» у макеті нічого не робила. Тепер вікно розкладається на весь
+   стіл: під топбаром (24+82) і над таскбаром (14+68), із власним скролом —
+   інакше довга стаття або довгий глосарій просто вилізли б за межі.
+   ---------------------------------------------------------------------- */
+.app-window.is-maximized {
+  position: fixed;
+  inset: 118px 2.25% 96px;
+  width: auto;
+  max-width: none;
+  /* Зсув від перетягування не має конкурувати з fixed-позицією */
+  transform: none !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-window.is-maximized > .titlebar {
+  flex: none;
+}
+
+/* Тіло вікна — єдиний елемент після титульного рядка, тому саме воно й
+   скролиться. Вирівнювання по центру не робимо: текст, притиснутий до лівого
+   краю широкого вікна, читається краще за розтягнутий на всю ширину. */
+.app-window.is-maximized > :last-child {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 /* --------------------------------------------------------------------- герой */
@@ -413,9 +444,14 @@ a:focus-visible {
 .chat-log {
   display: grid;
   gap: 6px;
-  max-height: 88px;
+  /* Було 88px під дві репліки макета. Тепер тут справжня розмова з поясненням
+     на кілька речень, і жорсткі пікселі або ріжуть відповідь, або на низькому
+     екрані заганяють вікно під таскбар. min() тримає обидва випадки без
+     окремого медіазапиту. */
+  max-height: min(200px, 26vh);
   overflow: auto;
   margin-bottom: 9px;
+  scroll-behavior: smooth;
 }
 
 .chat-message {
@@ -434,6 +470,25 @@ a:focus-visible {
 
 .chat-message.bot {
   background: rgba(255, 255, 255, 0.8);
+  white-space: pre-wrap;
+}
+
+/* «Думаю» і помилка — той самий бабл, інша температура: користувач мусить
+   бачити різницю між «ще пишу» і «не вийшло», не читаючи тексту. */
+.chat-message.pending {
+  color: #6b6b6b;
+  font-style: italic;
+}
+
+.chat-message.error {
+  background: #ffe0e0;
+}
+
+.bot-form input:disabled,
+.bot-form button:disabled,
+.suggestion-row button:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .bot-form {
@@ -486,6 +541,221 @@ a:focus-visible {
   color: var(--pink);
   font-size: 10px;
   font-weight: 800;
+}
+
+/* ============================================== ВІКНА-ІНСТРУМЕНТИ
+   Глосарій, «Свіже» і «Про студію» — той самий формат, що герой і WaitBot:
+   титульний рядок, три кнопки, перетягування. Відкриті не за замовчуванням,
+   тому й стоять каскадом: так видно, що їх кілька, і жодне не ховає інше
+   повністю.
+   ================================================================ */
+.tool-window {
+  position: absolute;
+  width: min(430px, 34%);
+}
+
+.win-glossary {
+  left: 28%;
+  top: 168px;
+}
+
+.win-feed {
+  left: 33%;
+  top: 208px;
+}
+
+.win-about {
+  left: 38%;
+  top: 248px;
+}
+
+.tool-content {
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.94),
+    rgba(242, 243, 235, 0.9)
+  );
+}
+
+.tool-note {
+  margin: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(23, 33, 42, 0.1);
+  color: #4c555b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* Стеля висоти, а не фіксована: вікно з трьома термінами не має бути
+   таким самим високим, як вікно з тридцятьма. */
+.tool-body {
+  max-height: 300px;
+  overflow: auto;
+  padding: 14px 16px;
+  overscroll-behavior: contain;
+}
+
+.tool-empty {
+  margin: 0;
+  padding: 18px 16px 22px;
+  color: #5a666e;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tool-fine {
+  margin: 16px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid rgba(23, 33, 42, 0.1);
+  color: #5a666e;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ---- глосарій: облако термінів ---- */
+.term-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.term-cloud button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(35, 143, 205, 0.28);
+  border-radius: 999px;
+  padding: 5px 11px;
+  background: rgba(35, 143, 205, 0.09);
+  color: #14638f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.term-cloud button:hover {
+  background: var(--yellow);
+  border-color: #d9b100;
+  color: #211b00;
+}
+
+/* Скільки статей використали термін. Одиниця не малюється: «1» біля кожного
+   слова — шум, а не інформація. */
+.term-cloud b {
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--pink);
+  color: #fff;
+  font-size: 9px;
+  text-align: center;
+}
+
+/* ---- свіже: список статей ---- */
+.feed-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.feed-list button {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  text-align: left;
+}
+
+.feed-list button:hover {
+  background: rgba(35, 143, 205, 0.1);
+}
+
+.feed-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border-radius: 3px;
+}
+
+.feed-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.feed-text strong {
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.feed-text small {
+  color: #5a666e;
+  font-size: 10px;
+}
+
+/* ---- про студію: чотири дні й цифри ---- */
+.pipeline-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.pipeline-list li {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.pipeline-list b {
+  padding: 3px 0;
+  border-top: 2px solid var(--pink);
+  color: var(--ink);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pipeline-list span {
+  color: #3c474e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.about-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 16px 0 0;
+}
+
+.about-stats div {
+  padding: 8px 6px;
+  border-radius: 10px;
+  background: rgba(35, 143, 205, 0.1);
+  text-align: center;
+}
+
+.about-stats dt {
+  color: #4c555b;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.about-stats dd {
+  margin: 2px 0 0;
+  font-family: Georgia, serif;
+  font-size: 22px;
+  line-height: 1;
 }
 
 /* ------------------------------------------------------------------ ярлики */
@@ -543,6 +813,10 @@ a:focus-visible {
   background: linear-gradient(145deg, #b790ed, #7453b7);
 }
 
+.shortcut-about {
+  background: linear-gradient(145deg, #7ee0c4, #1f9c86);
+}
+
 .desktop-shortcut strong {
   margin-top: 3px;
   font-size: 12px;
@@ -570,10 +844,14 @@ a:focus-visible {
   z-index: 9;
   left: 7.6%;
   right: 39.9%;
-  /* Рівно як у макеті. Не «розумний» min() від висоти екрана: там стрічка
-     наїжджала на вікно героя (z-index 9 проти 5) і закривала йому низ. Коли
-     не влазить — скролиться шар вище, а композиція лишається цілою. */
-  top: 568px;
+  /* Прив'язка до НИЗУ, а не до `top: 568px` як у макеті.
+     Таскбар зафіксований на 14px від краю вікна, тому будь-що, прив'язане до
+     верху, на низькому екрані заповзає під нього — саме це й ставалося з
+     картками. Знизу: 104px гарантовано вище за таскбар (82px), а `100% - 862px`
+     утримує стрічку на висоті макета, коли стіл вищий за 966px. Тобто на
+     великому екрані композиція та сама, а на малому стрічка піднімається. */
+  top: auto;
+  bottom: max(104px, calc(100% - 862px));
   display: grid;
   gap: 8px;
   scroll-margin-top: 130px;
@@ -647,6 +925,31 @@ a:focus-visible {
   /* Чотири картки у видимій частині — рівно як у сітці макета */
   flex: 0 0 calc((100% - 42px) / 4);
   scroll-snap-align: start;
+}
+
+/* ------------------------------------------------------- шість карток у ряд
+   Стрічка не може зайти правіше за вікно WaitBot (його ліва межа при ширині
+   1600px — близько 62%), інакше картки поїхали б під нього: вікно завжди вище
+   за стрічку в порядку шарів. Тому шість карток дає не ширша стрічка, а вужчі
+   картки — і нижча обкладинка, щоб плитка не стала вежею.
+   ------------------------------------------------------------------------- */
+@media (min-width: 1600px) {
+  .article-strip {
+    right: 37%;
+  }
+  .strip-track > * {
+    flex: 0 0 calc((100% - 70px) / 6);
+  }
+  .article-open img,
+  .article-card .cover-blank {
+    height: 104px;
+  }
+  .article-copy {
+    min-height: 74px;
+  }
+  .article-copy strong {
+    font-size: 12px;
+  }
 }
 
 .article-card {
@@ -872,8 +1175,128 @@ a:focus-visible {
     inset 0 2px rgba(255, 255, 255, 0.65);
 }
 
-.start-button:hover {
+.start-button:hover,
+.start-button.is-active {
   transform: scale(1.06) rotate(8deg);
+}
+
+.start-button.is-active {
+  background: var(--yellow);
+  color: #fff;
+  text-shadow: 0 2px rgba(0, 0, 0, 0.25);
+}
+
+/* ------------------------------------------------------------ меню «Пуск»
+   Прив'язане до таскбара (він fixed, тож і є containing block), а не до вікна:
+   меню мусить стояти рівно над кнопкою, як у справжній системі.
+   ---------------------------------------------------------------------- */
+.start-menu {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 0;
+  z-index: 50;
+  width: min(360px, 88vw);
+  padding: 16px;
+  border-radius: 20px;
+  color: #fff;
+}
+
+.start-menu__title {
+  margin: 0 0 12px;
+  font-family: Georgia, serif;
+  font-size: 19px;
+  letter-spacing: -0.03em;
+}
+
+.start-menu__title span {
+  color: var(--yellow);
+}
+
+.start-menu__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.start-menu__grid button {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  padding: 11px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.start-menu__grid button:hover {
+  background: rgba(255, 255, 255, 0.28);
+  transform: translateY(-2px);
+}
+
+.start-menu__grid button span {
+  font-size: 22px;
+}
+
+/* Крапка «відкрито» — той самий сигнал, що підкреслення на кнопці таскбара */
+.start-menu__grid b {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--yellow);
+}
+
+.start-menu__label {
+  margin: 14px 0 7px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.start-menu__facets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.start-menu__facets button {
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.start-menu__facets button[aria-pressed="true"] {
+  background: var(--yellow);
+  border-color: #d9b100;
+  color: #211b00;
+}
+
+.start-menu__quit {
+  width: 100%;
+  margin-top: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  padding: 9px;
+  background: rgba(238, 91, 102, 0.28);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.start-menu__quit:hover {
+  background: #ee5b66;
 }
 
 .task-apps {
@@ -898,23 +1321,129 @@ a:focus-visible {
   background: rgba(255, 255, 255, 0.18);
 }
 
-.task-apps button[aria-pressed="true"] {
-  background: rgba(255, 255, 255, 0.24);
+/* Підкреслення = вікно відкрите. Той самий сигнал, що в справжній панелі:
+   іконка є завжди, смужка з'являється лише в запущеного. */
+.task-apps button.is-running {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.task-apps button.is-running::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--yellow);
+}
+
+.task-apps button {
+  position: relative;
+  font-size: 12px;
 }
 
 .task-apps span {
-  font-size: 28px;
+  font-size: 24px;
 }
 
 .system-tray {
+  position: relative;
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 16px;
-  font-size: 18px;
+  gap: 10px;
+  font-size: 17px;
+}
+
+.tray-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 34px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #fff;
+}
+
+button.tray-item:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.tray-badge {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--pink);
+  color: #fff;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 14px;
+  text-align: center;
+}
+
+.tray-net.is-offline {
+  color: #ffd0d4;
+}
+
+/* Індикатор заряду малюється, а не пишеться: смужка читається краєм ока
+   швидше за відсоток. Ширина заливки — реальний level із Battery API. */
+.tray-battery {
+  position: relative;
+  display: block;
+  width: 24px;
+  height: 12px;
+  border: 1.5px solid rgba(255, 255, 255, 0.8);
+  border-radius: 4px;
+  padding: 1.5px;
+}
+
+.tray-battery::before {
+  content: "";
+  display: block;
+  width: var(--level, 0%);
+  height: 100%;
+  border-radius: 2px;
+  background: #fff;
+}
+
+.tray-battery::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: -4px;
+  width: 2.5px;
+  height: 4px;
+  border-radius: 0 2px 2px 0;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.tray-battery.is-charging::before {
+  background: var(--yellow);
+}
+
+.tray-clock {
+  border: 0;
+  border-radius: 10px;
+  padding: 4px 8px;
+  background: transparent;
+  color: #fff;
+}
+
+.tray-clock:hover {
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .system-tray time {
+  display: block;
   min-width: 72px;
   text-align: right;
   font-size: 13px;
@@ -924,6 +1453,57 @@ a:focus-visible {
 
 .system-tray small {
   font-size: 11px;
+}
+
+/* ---------------------------------------------------------- календар у треї */
+.tray-popup {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  right: 0;
+  z-index: 50;
+  width: 250px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  color: #fff;
+  background: rgba(44, 139, 193, 0.42);
+  box-shadow: 0 18px 55px rgba(12, 65, 88, 0.32);
+  backdrop-filter: blur(18px) saturate(125%);
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+}
+
+.tray-popup__title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar small {
+  padding-bottom: 4px;
+  font-size: 9px;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.calendar span {
+  display: grid;
+  place-items: center;
+  height: 26px;
+  border-radius: 8px;
+}
+
+.calendar span[aria-current="date"] {
+  background: var(--yellow);
+  color: #211b00;
+  font-weight: 800;
 }
 
 /* ============================================================ ВІКНО СТАТТІ
@@ -948,6 +1528,22 @@ a:focus-visible {
   overflow: auto;
   background: rgba(249, 249, 242, 0.96);
   overscroll-behavior: contain;
+}
+
+/* «На весь екран» для статті: ширша колонка й майже вся висота. Текст при
+   цьому лишається в межах .article-body (660px) — рядок на 1200px не читається,
+   яким би великим не був монітор. */
+.article-modal.is-wide {
+  width: 96vw;
+  max-height: 96vh;
+}
+
+.article-modal.is-wide .modal-copy {
+  padding: 34px clamp(32px, 6vw, 120px) 44px;
+}
+
+.article-modal.is-wide > img {
+  height: 380px;
 }
 
 .article-modal > .titlebar {
@@ -1214,6 +1810,50 @@ a:focus-visible {
   display: none !important;
 }
 
+/* ------------------------------------------------------- низький екран
+   Стрічка прив'язана до низу столу, а стіл дорівнює вікну — отже на низькому
+   екрані вона піднімається й починає тиснути на вікно героя. Тому герой
+   стискається сходинками: на 1080p із хромом браузера (~860px) це ще повна
+   композиція, на 1366×768 — компактна.
+   -------------------------------------------------------------------- */
+@media (min-width: 900px) and (max-height: 940px) {
+  .hero-content {
+    min-height: 300px;
+  }
+  .hero-content h1 {
+    font-size: clamp(38px, 3.6vw, 58px);
+  }
+  .bot-window {
+    top: 150px;
+  }
+  .desktop-shortcuts {
+    gap: 16px;
+  }
+}
+
+@media (min-width: 900px) and (max-height: 840px) {
+  .hero-content {
+    min-height: 244px;
+    padding: 30px 44px 26px;
+  }
+  .hero-content > p:not(.eyebrow) {
+    margin: 12px 0 18px;
+  }
+  .article-open img,
+  .article-card .cover-blank {
+    height: 92px;
+  }
+  .article-copy {
+    min-height: 66px;
+  }
+  .waitbot-avatar {
+    height: 88px;
+  }
+  .desktop-shortcuts {
+    gap: 10px;
+  }
+}
+
 /* --------------------------------------------------------------- адаптація */
 @media (max-width: 1180px) {
   .topbar {
@@ -1243,7 +1883,7 @@ a:focus-visible {
   }
 }
 
-@media (max-width: 899px) {
+@media (max-width: 899px), (max-height: 700px) {
   .desktop-shell {
     overflow: auto;
     background-attachment: fixed;
@@ -1273,6 +1913,7 @@ a:focus-visible {
   }
   .hero-window,
   .bot-window,
+  .tool-window,
   .article-strip,
   .desktop-shortcuts {
     position: relative;
@@ -1280,6 +1921,21 @@ a:focus-visible {
     width: 100%;
     max-width: none;
     transform: none !important;
+  }
+
+  /* Розгортати нічого: вікна й так на всю ширину й лежать одне під одним */
+  .app-window.is-maximized {
+    position: relative;
+    inset: auto;
+    display: block;
+  }
+
+  .app-window.is-maximized > :last-child {
+    overflow: visible;
+  }
+
+  .tool-body {
+    max-height: none;
   }
   .hero-content {
     min-height: 340px;
@@ -1294,7 +1950,7 @@ a:focus-visible {
   }
   .desktop-shortcuts {
     order: 3;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 10px;
   }
   .desktop-shortcut {
@@ -1361,7 +2017,7 @@ a:focus-visible {
     height: 210px;
   }
   .desktop-shortcuts {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
   }
   .taskbar {
     height: 62px;

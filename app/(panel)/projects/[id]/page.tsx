@@ -124,10 +124,9 @@ async function loadProject(id: string) {
         .limit(1)
         .returns<Day2Plan[]>()
         .maybeSingle(),
-      // День 3 — єдиний, де рядків на проєкт навмисно багато: baseline і
-      // optimized пишуть у ту саму таблицю, і різниця між ними — предмет дня.
-      // limit(1) показував би лише найновішу, тобто рівно те, що не дозволяє
-      // нічого порівняти.
+      // День 3 — єдиний, де рядків на проєкт багато: кожен прогін пише свою
+      // статтю. limit(1) показував би лише найновішу, а попередні версії
+      // стали б недосяжними — разом із рішеннями, які по них ухвалили.
       supabase
         .from("day3_article")
         .select("*")
@@ -551,15 +550,6 @@ export default async function ProjectDetailPage({
                   >
                     <BookIcon className="h-4 w-4" />
                     Почитати
-                  </LinkButton>
-                )}
-                {day3.length > 1 && (
-                  <LinkButton
-                    href={`/projects/${id}/day3/compare`}
-                    variant="ghost"
-                    size="sm"
-                  >
-                    Порівняти
                   </LinkButton>
                 )}
                 <DayActions

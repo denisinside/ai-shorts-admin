@@ -14,15 +14,17 @@ type BuildResult =
   | { ok: true; values: Record<string, string>; data: Record<string, unknown> }
   | { ok: false; values: Record<string, string>; error: string };
 
-/** Значення колонки `pipeline` — той самий словник, що в CHECK бази. */
-const PIPELINES = ["baseline", "optimized"] as const;
+/**
+ * `pipeline` — NOT NULL з CHECK у базі, тому значення потрібне й досі, але
+ * вибирати його людині більше нема з чого: пайплайн один. Форма це поле не
+ * показує, а ставить його код — рівно як `approved: false` чи `run_id`.
+ */
+const PIPELINE = "optimized";
 
 function buildPayload(formData: FormData): BuildResult {
   const values = {
     run_id: String(formData.get("run_id") ?? ""),
     day2_plan_id: String(formData.get("day2_plan_id") ?? ""),
-    pipeline: String(formData.get("pipeline") ?? "baseline"),
-    variant: String(formData.get("variant") ?? ""),
     title: String(formData.get("title") ?? ""),
     thumbnail_url: String(formData.get("thumbnail_url") ?? ""),
     intro: String(formData.get("intro") ?? ""),
@@ -51,15 +53,6 @@ function buildPayload(formData: FormData): BuildResult {
   }
   if (!values.conclusion.trim()) {
     return { ok: false, values, error: "Текст висновку обовʼязковий" };
-  }
-
-  // CHECK у базі відхилив би чуже значення сирою помилкою драйвера
-  if (!(PIPELINES as readonly string[]).includes(values.pipeline)) {
-    return {
-      ok: false,
-      values,
-      error: `Пайплайн має бути ${PIPELINES.join(" або ")}`,
-    };
   }
 
   // NOT NULL у базі — порожнє поле має стати [], а не null
@@ -114,8 +107,7 @@ function buildPayload(formData: FormData): BuildResult {
     data: {
       run_id: runId,
       day2_plan_id: planId.value,
-      pipeline: values.pipeline,
-      variant: values.variant.trim() || null,
+      pipeline: PIPELINE,
       title,
       thumbnail_url: values.thumbnail_url.trim() || null,
       intro: values.intro,

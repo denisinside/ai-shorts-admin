@@ -16,6 +16,18 @@
 export const GATE_ACTIONS = ["approve", "reject", "revise"] as const;
 export type GateAction = (typeof GATE_ACTIONS)[number];
 
+/**
+ * Маршрут вебхук-тригера Dify — це `/triggers/webhook/<id>` БЕЗ слеша в кінці:
+ * зі слешем Flask не матчить правило й віддає загальний 404 «The requested URL
+ * was not found», який ніяк не схожий на «вебхук не той». Один зайвий символ у
+ * змінній оточення тихо вбив гейт Дня 2 і не був видний у діагностиці, бо та
+ * друкувала лише хост. Дешевше нормалізувати, ніж ще раз це шукати.
+ */
+function normalizeWebhook(raw: string | undefined): string | undefined {
+  const clean = raw?.trim().replace(/\/+$/, "");
+  return clean || undefined;
+}
+
 export type Gate = {
   /** Людською мовою — для повідомлень у Discord і для діагностики. */
   label: string;
@@ -28,7 +40,7 @@ export type Gate = {
 export const GATES = {
   day1: {
     label: "Дослідження трендів",
-    webhook: process.env.DIFY_WEBHOOK_DAY1,
+    webhook: normalizeWebhook(process.env.DIFY_WEBHOOK_DAY1),
     actions: ["approve", "reject", "revise"],
   },
   // DIFY_WEBHOOK_URL — легасі-ім'я з часів єдиного гейта. Лишається запасним
@@ -36,7 +48,7 @@ export const GATES = {
   // до того, як у Vercel з'явиться DIFY_WEBHOOK_DAY2.
   day2: {
     label: "План статті",
-    webhook: process.env.DIFY_WEBHOOK_DAY2 ?? process.env.DIFY_WEBHOOK_URL,
+    webhook: normalizeWebhook(process.env.DIFY_WEBHOOK_DAY2 ?? process.env.DIFY_WEBHOOK_URL),
     actions: ["approve", "reject"],
   },
   // Гейт статті живе лише в апці optimized: baseline існує, щоб дати цифри
@@ -45,7 +57,7 @@ export const GATES = {
   // гілка з власним revision_of, як у Дні 1.
   day3: {
     label: "Стаття",
-    webhook: process.env.DIFY_WEBHOOK_DAY3,
+    webhook: normalizeWebhook(process.env.DIFY_WEBHOOK_DAY3),
     actions: ["approve", "reject"],
   },
 } as const satisfies Record<string, Gate>;
@@ -205,6 +217,35 @@ export function reviseNote(components: unknown): string {
  * Що видно застосунку по кожному домену. Без значень — лише наявність і хост,
  * щоб не зливати URL вебхуків у браузер.
  */
+/**
+ * Сирі значення зі змінних оточення — щоб діагностика показала САМЕ те, що
+ * задано, а не те, що лишилося після нормалізації. Статичний доступ тут з тієї
+ * ж причини, що й у `GATES`.
+ */
+const RAW_WEBHOOKS: Record<GateDomain, string | undefined> = {
+  day1: process.env.DIFY_WEBHOOK_DAY1,
+  day2: process.env.DIFY_WEBHOOK_DAY2 ?? process.env.DIFY_WEBHOOK_URL,
+  day3: process.env.DIFY_WEBHOOK_DAY3,
+};
+
+/**
+ * Що не так зі значенням, крім його відсутності. Сам URL сюди не потрапляє
+ * НІКОЛИ: вебхук-тригер Dify не має автентифікації, тож його адреса — це і є
+ * ключ. Але «слеш у кінці» або «пробіл» назвати можна й треба — без цього
+ * діагностика показувала правильний хост у обох випадках, і зайвий символ
+ * шукався годину.
+ */
+function webhookQuirks(raw: string | undefined): string[] {
+  if (!raw) return [];
+  const quirks: string[] = [];
+  if (raw !== raw.trim()) quirks.push("пробіли на краях");
+  const trimmed = raw.trim();
+  if (/\/$/.test(trimmed)) quirks.push("слеш у кінці — Dify віддасть 404");
+  if (/\s/.test(trimmed)) quirks.push("пробіл усередині");
+  if (/^["']|["']$/.test(trimmed)) quirks.push("лапки навколо значення");
+  return quirks;
+}
+
 export function gateDiagnostics() {
   return GATE_DOMAINS.map((domain) => {
     const gate: Gate = GATES[domain];
@@ -214,11 +255,19 @@ export function gateDiagnostics() {
     } catch {
       host = "НЕКОРЕКТНИЙ URL";
     }
+    const quirks = webhookQuirks(RAW_WEBHOOKS[domain]);
     return {
       domain,
       label: gate.label,
       actions: gate.actions,
-      webhook: { present: Boolean(gate.webhook), host },
+      webhook: {
+        present: Boolean(gate.webhook),
+        host,
+        // Довжина ідентифікатора, а не сам ідентифікатор: у Dify він завжди
+        // 24 символи, тож обрізане чи склеєне значення видно одразу.
+        id_length: gate.webhook ? (gate.webhook.split("/").pop() ?? "").length : 0,
+        quirks,
+      },
     };
   });
 }
@@ -231,8 +280,13 @@ export function gateProblems(): string[] {
       problems.push(
         `вебхук домену ${domain} (${gate.label}) не заданий — рішення нікуди передавати`,
       );
-    } else if (!/^https?:\/\//.test(gate.webhook)) {
+      continue;
+    }
+    if (!/^https?:\/\//.test(gate.webhook)) {
       problems.push(`вебхук домену ${domain} має починатися з https://`);
+    }
+    for (const quirk of webhookQuirks(RAW_WEBHOOKS[domain])) {
+      problems.push(`вебхук домену ${domain}: ${quirk}`);
     }
   }
   return problems;

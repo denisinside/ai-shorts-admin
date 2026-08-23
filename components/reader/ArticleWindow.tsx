@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { cn } from "@/lib/ui";
 import { Markdown } from "@/components/ui/Markdown";
 import type { ReaderArticle } from "@/lib/reader";
 
@@ -78,6 +79,9 @@ export default function ArticleWindow({
   onClose: () => void;
 }) {
   const windowRef = useRef<HTMLElement | null>(null);
+  // Довгу статтю читати у вікні на 820px незручно, тому «на весь екран» тут
+  // не декорація: воно розтягує вікно майже на весь стіл.
+  const [maxed, setMaxed] = useState(false);
 
   // Esc закриває вікно, а фокус їде в нього при відкритті: інакше після кліку
   // по картці читач з клавіатурою лишався б у стрічці під оверлеєм.
@@ -107,18 +111,24 @@ export default function ArticleWindow({
       <article
         ref={windowRef}
         tabIndex={-1}
-        className="article-modal app-window"
+        className={cn("article-modal app-window", maxed && "is-wide")}
         role="dialog"
         aria-modal="true"
         aria-labelledby="article-modal-title"
       >
-        <div className="titlebar">
+        <div className="titlebar" onDoubleClick={() => setMaxed((on) => !on)}>
           <span>{fileName}</span>
           <div className="window-controls">
             <button onClick={onClose} aria-label="Згорнути вікно">
               −
             </button>
-            <button aria-label="Розгорнути вікно">□</button>
+            <button
+              onClick={() => setMaxed((on) => !on)}
+              aria-pressed={maxed}
+              aria-label={maxed ? "Відновити розмір" : "Розгорнути на весь стіл"}
+            >
+              {maxed ? "❐" : "□"}
+            </button>
             <button onClick={onClose} aria-label="Закрити вікно">
               ×
             </button>
@@ -139,7 +149,6 @@ export default function ArticleWindow({
                 <span className="card-flag card-flag--draft">чернетка</span>
               )
             )}
-            {article.variant && !article.demo && <span>{article.variant}</span>}
           </p>
 
           <h2 id="article-modal-title">{article.title}</h2>
@@ -149,8 +158,9 @@ export default function ArticleWindow({
               сказати прямо. */}
           {article.demo ? (
             <p className="article-note article-note--demo">
-              Демонстраційна картка з макета. За нею немає рядка в базі, тому
-              далі вступу тексту не буде — розділи пише День 3.
+              Демонстраційна стаття з макета: текст написаний як приклад
+              верстки. За нею немає ні рядка в базі, ні прогону Дня 3 — тому
+              немає й посилань на джерела.
             </p>
           ) : (
             !article.approved && (

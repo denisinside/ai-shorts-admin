@@ -286,7 +286,8 @@ export type ArticleSeo = {
 export type QualityCriterion = { pass?: boolean } & Record<string, unknown>;
 
 /**
- * Телеметрія прогону — вхід для таблиці «до/після».
+ * Телеметрія прогону: чи можна цю статтю затверджувати і скільком блокам не
+ * пощастило з ілюстраціями.
  * `tokens_total` приходить з Dify Logs окремо: воркфлоу не бачить власного
  * споживання токенів, тому в графі чесно міряється лише час.
  */
@@ -299,29 +300,19 @@ export type ArticleMetrics = {
   models?: Record<string, number>;
   /** Скільки розділів повернув редактор. Завжди 0 = редактор нічого не ловить. */
   rewrites?: number;
-  /** `dify` означає, що аплоад у Storage не вдався і посилання протухне. */
-  images_stored?: "supabase" | "dify";
+  /** Скільки ілюстрацій справді лягло в Storage і скільком не пощастило. */
+  images_stored?: number;
+  images_lost?: number;
   tokens_total?: number | null;
   quality?: Record<string, QualityCriterion | number>;
 };
 
-/** Який пайплайн зробив рядок — на цьому тримається таблиця порівняння. */
-export type ArticlePipeline = "baseline" | "optimized";
-
-export const PIPELINE_LABELS: Record<ArticlePipeline, string> = {
-  baseline: "Baseline",
-  optimized: "Optimized",
-};
-
-export const PIPELINE_STYLES: Record<ArticlePipeline, string> = {
-  baseline: "text-ink-muted ring-white/12",
-  optimized: "bg-arc/14 text-arc ring-arc/30",
-};
-
 /**
- * Стаття Дня 3. На відміну від Днів 1 і 2, рядків на проєкт навмисно багато:
- * baseline і optimized пишуть у ту саму таблицю, і різниця між ними — предмет
- * дня. Контракт: supabase/day3-article-contract.md
+ * Стаття Дня 3. На відміну від Днів 1 і 2, рядків на проєкт багато: кожен
+ * прогін пише свою статтю. Панель показує їх як версії статті — просто за
+ * часом. Колонки `pipeline` і `variant` у типі лишаються, бо лишаються в
+ * базі, але в інтерфейс не йдуть: порівняння пайплайнів було задачею Дня 3
+ * і закінчилося разом із ним. Контракт: supabase/day3-article-contract.md
  */
 export type Day3Article = {
   id: string;
@@ -329,8 +320,8 @@ export type Day3Article = {
   /** null означає, що план видалили — стаття лишається. */
   day2_plan_id: string | null;
   run_id: string;
-  pipeline: ArticlePipeline;
-  /** Мітка ітерації оптимізації: opt-v1, opt-v2… */
+  /** Історичне бухгалтерство прогону. В інтерфейсі не показується. */
+  pipeline: string;
   variant: string | null;
   title: string;
   thumbnail_url: string | null;

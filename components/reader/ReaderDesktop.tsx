@@ -6,9 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   FACET_LABELS,
@@ -16,137 +14,71 @@ import {
   type ReaderArticle,
   type ReaderFacet,
 } from "@/lib/reader";
+import { cn } from "@/lib/ui";
 import ArticleWindow from "./ArticleWindow";
+import DesktopWindow, {
+  WINDOW_META,
+  type WindowId,
+  type WindowState,
+} from "./DesktopWindow";
+import Taskbar from "./Taskbar";
+import { AboutBody, FeedBody, GlossaryBody } from "./ToolWindows";
 
 /**
  * Робочий стіл «Wait, What?» — інтерактивна частина читалки.
  *
- * Чому один великий клієнтський компонент, а не дерево серверних: усе тут —
- * один стан (фасет, пошук, збережене, відкрита стаття), і стрічка мусить
- * перефільтровуватися без походу на сервер. Дані приходять уже плоскими
- * (`ReaderArticle`), тому серверна частина лишається запитом до бази й нічим
- * більше.
+ * Чому один клієнтський компонент, а не дерево серверних: усе тут — один стан
+ * (фасет, пошук, збережене, які вікна відкриті, яка стаття читається), і стрічка
+ * мусить перефільтровуватися без походу на сервер. Дані приходять уже плоскими
+ * (`ReaderArticle`), тому серверна частина лишається запитом до бази.
  *
  * Ярлики й пункти меню з макета навмисно НЕ декоративні: замість «12 items»
  * вони показують справжні лічильники й працюють як фасети стрічки. Намальована
  * цифра на сторінці, під'єднаній до бази, — це просто неправда.
  */
 
-/** Що WaitBot умів у макеті. Це демо-довідник, а не запит до моделі. */
-const BOT_ANSWERS: Record<string, string> = {
-  rizz: "Rizz — це харизма й уміння фліртувати. Коротко: чарівність, перезібрана інтернетом.",
-  corecore:
-    "Corecore — відеоестетика-колаж: уривки інтернету, змонтовані так, щоб передати перевантаження й відчуженість сучасного життя.",
-  "gen z на роботі":
-    "Gen Z цінує чіткі очікування, частий фідбек, гнучкість і докази, що заявлені цінності компанії справжні.",
-};
+/**
+ * Репліка, поки Dify думає. Випадковість — тут, а не в моделі: у пісочниці
+ * Dify немає `Math.random`, а сама температура дає варіації тону, але не
+ * структури, і за десяток реплік це читається як шаблон.
+ */
+const THINKING = [
+  "ща гляну…",
+  "секунду, гортаю словник",
+  "о, цікаве. дивлюсь",
+  "тримай думку, зараз буде",
+  "ммм окей, думаю",
+] as const;
 
-const BOT_PROMPTS = ["RIZZ", "CORECORE", "GEN Z НА РОБОТІ"];
+/** Максимум пар «питання-відповідь» у вікні. Далі старе прокручується геть:
+ *  сама розмова живе в Dify, лог тут — лише те, що видно. */
+const CHAT_LIMIT = 8;
 
-/** Фасети в тому порядку, в якому вони стоять у меню й на ярликах. */
+type ChatTurn = { role: "user" | "bot"; text: string; kind?: "pending" | "error" };
+
+// По одній на кожну гілку воркфлоу: пояснити слово, розібрати фразу зі
+// сленгом, перекласти НА зумерську.
+const BOT_PROMPTS = [
+  "ЩО ТАКЕ RIZZ",
+  "HE HAS NO RIZZ FR FR",
+  "ПЕРЕКЛАДИ: ВІН ДУЖЕ ВПЕВНЕНИЙ У СОБІ, ХОЧА ПІДСТАВ НЕМА",
+];
+
+/** Фасети в тому порядку, в якому вони стоять у меню топбара. */
 const NAV_FACETS: ReaderFacet[] = ["all", "ready", "draft", "demo"];
 
 const TOAST_MS = 2200;
 
-/* ------------------------------------------------------------------ годинник
-   Годинник у системному треї — зовнішнє джерело даних, а не стан React: на
-   сервері часу клієнта не існує, тому відрендерений там він гарантовано не
-   збігся б із клієнтським і давав розбіжність гідратації на кожному
-   завантаженні. `useSyncExternalStore` для цього й придуманий: серверний
-   снапшот — заглушка, а далі значення оновлює підписка.
+/** Найнижчий шар вікна. Нижче — стрічка (9), вище — топбар (30). */
+const WINDOW_Z_BASE = 12;
 
-   Снапшот кешується в модулі навмисно: `getSnapshot` мусить повертати те саме
-   значення між тиками, інакше React вважає стор нестабільним і зациклює
-   рендери. Тому час перечитує саме підписка, а не гетер.
-   -------------------------------------------------------------------------- */
-const CLOCK_TICK_MS = 30_000;
-
-type ClockSnapshot = { time: string; date: string };
-
-const SERVER_CLOCK: ClockSnapshot = { time: "--:--", date: "" };
-
-let clockSnapshot: ClockSnapshot = SERVER_CLOCK;
-
-function readClock(): ClockSnapshot {
-  const now = new Date();
-  return {
-    time: now.toLocaleTimeString("uk-UA", {
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-    date: now.toLocaleDateString("uk-UA"),
-  };
-}
-
-function subscribeClock(onChange: () => void) {
-  clockSnapshot = readClock();
-  onChange();
-
-  const timer = setInterval(() => {
-    clockSnapshot = readClock();
-    onChange();
-  }, CLOCK_TICK_MS);
-
-  return () => clearInterval(timer);
-}
-
-const getClockSnapshot = () => clockSnapshot;
-const getServerClockSnapshot = () => SERVER_CLOCK;
-
-/**
- * Перетягування вікна за титульний рядок. Зсув живе в стані, а не в
- * `style.transform` напряму, щоб мобільна медіазапит-скидка
- * (`transform: none !important`) лишалася єдиним джерелом істини про розкладку
- * на вузьких екранах.
- */
-function useWindowDrag() {
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const from = useRef<{ x: number; y: number; ox: number; oy: number } | null>(
-    null,
-  );
-
-  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    // Нижче 900px вікна лежать у потоці — тягати там нічого
-    if (window.innerWidth < 900) return;
-    // Кнопки згортання живуть у самому титульному рядку: клік по них не тягне
-    if ((event.target as HTMLElement).closest("button")) return;
-
-    from.current = {
-      x: event.clientX,
-      y: event.clientY,
-      ox: offset.x,
-      oy: offset.y,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!from.current) return;
-    setOffset({
-      x: from.current.ox + event.clientX - from.current.x,
-      y: from.current.oy + event.clientY - from.current.y,
-    });
-  };
-
-  const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    from.current = null;
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {
-      /* захоплення могло не відбутися — відпускати нічого */
-    }
-  };
-
-  return {
-    style: { transform: `translate(${offset.x}px, ${offset.y}px)` },
-    handlers: {
-      onPointerDown,
-      onPointerMove,
-      onPointerUp,
-      onPointerCancel: onPointerUp,
-    },
-  };
-}
+const INITIAL_WINDOWS: Record<WindowId, WindowState> = {
+  welcome: { open: true, max: false, x: 0, y: 0, z: WINDOW_Z_BASE },
+  waitbot: { open: true, max: false, x: 0, y: 0, z: WINDOW_Z_BASE + 1 },
+  glossary: { open: false, max: false, x: 0, y: 0, z: WINDOW_Z_BASE + 2 },
+  feed: { open: false, max: false, x: 0, y: 0, z: WINDOW_Z_BASE + 3 },
+  about: { open: false, max: false, x: 0, y: 0, z: WINDOW_Z_BASE + 4 },
+};
 
 export default function ReaderDesktop({
   articles,
@@ -163,14 +95,17 @@ export default function ReaderDesktop({
   const [hiddenCards, setHiddenCards] = useState<ReadonlySet<string>>(
     new Set(),
   );
-  const [heroOpen, setHeroOpen] = useState(true);
-  const [botOpen, setBotOpen] = useState(true);
+  const [windows, setWindows] =
+    useState<Record<WindowId, WindowState>>(INITIAL_WINDOWS);
   const [toast, setToast] = useState<string | null>(null);
-  const [chat, setChat] = useState<{ user: string; bot: string } | null>(null);
+  const [chat, setChat] = useState<ChatTurn[]>([]);
   const [botInput, setBotInput] = useState("");
-
-  const heroDrag = useWindowDrag();
-  const botDrag = useWindowDrag();
+  const [botBusy, setBotBusy] = useState(false);
+  // conversation_id носить клієнт, а не сервер: розмова прив'язана до вкладки,
+  // і Dify не треба питати про історію окремим запитом, як це робить /aislop.
+  const conversationRef = useRef("");
+  const userRef = useRef("");
+  const logRef = useRef<HTMLDivElement | null>(null);
 
   // ------------------------------------------------------------------ тост
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -186,12 +121,70 @@ export default function ReaderDesktop({
     [],
   );
 
-  // ------------------------------------------------------------ годинник
-  const clock = useSyncExternalStore(
-    subscribeClock,
-    getClockSnapshot,
-    getServerClockSnapshot,
+  // ------------------------------------------------------------------ вікна
+  const patchWindow = useCallback(
+    (id: WindowId, patch: Partial<WindowState>) => {
+      setWindows((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+    },
+    [],
   );
+
+  /**
+   * Піднімає вікно над рештою. Шари ПЕРЕНУМЕРОВУЮТЬСЯ, а не інкрементуються:
+   * лічильник, що тільки росте, за двадцять кліків переліз би топбар (30) і
+   * вікно почало б накривати навігацію.
+   */
+  const focusWindow = useCallback((id: WindowId) => {
+    setWindows((prev) => {
+      const below = (Object.keys(prev) as WindowId[])
+        .filter((key) => key !== id)
+        .sort((a, b) => prev[a].z - prev[b].z);
+
+      const next = { ...prev };
+      [...below, id].forEach((key, index) => {
+        next[key] = { ...prev[key], z: WINDOW_Z_BASE + index };
+      });
+      return next;
+    });
+  }, []);
+
+  const openWindow = useCallback(
+    (id: WindowId) => {
+      patchWindow(id, { open: true });
+      focusWindow(id);
+    },
+    [focusWindow, patchWindow],
+  );
+
+  /** Клік по кнопці в таскбарі: згортає відкрите, відновлює згорнуте. */
+  const toggleWindow = useCallback(
+    (id: WindowId) => {
+      if (windows[id].open) patchWindow(id, { open: false });
+      else openWindow(id);
+    },
+    [openWindow, patchWindow, windows],
+  );
+
+  /**
+   * Закриття, на відміну від згортання, скидає геометрію: згорнуте вікно
+   * повертається туди, де стояло, а закрите — на своє місце на столі.
+   */
+  const closeWindow = useCallback(
+    (id: WindowId) => {
+      patchWindow(id, { open: false, max: false, x: 0, y: 0 });
+    },
+    [patchWindow],
+  );
+
+  const closeAllWindows = useCallback(() => {
+    setWindows((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(prev) as WindowId[]) {
+        next[key] = { ...prev[key], open: false, max: false, x: 0, y: 0 };
+      }
+      return next;
+    });
+  }, []);
 
   // -------------------------------------------------------- URL відкритої
   // Посилання на статтю має бути можливо кинути в чат, тому `?article=` завжди
@@ -297,6 +290,13 @@ export default function ReaderDesktop({
     setHiddenCards(new Set());
   };
 
+  const searchFor = (term: string) => {
+    setFacet("all");
+    setQuery(term);
+    setHiddenCards(new Set());
+    showToast(`Шукаю «${term}»`);
+  };
+
   const toggleSaved = (id: string) => {
     // Тост — поза апдейтером: React має право викликати його двічі, і тоді
     // повідомлення показалося б двічі за один клік.
@@ -310,23 +310,95 @@ export default function ReaderDesktop({
     showToast(wasSaved ? "Прибрано зі збереженого" : "Збережено на потім");
   };
 
-  const askBot = (message: string) => {
+  /**
+   * Питає WaitBot. Уся логіка — матчер словника, два різні пошуки й вибір
+   * гілки — живе у воркфлоу Dify; сторінка лише показує репліки, тому нове
+   * вміння бота не потребує деплою панелі.
+   */
+  const askBot = async (message: string) => {
     const text = message.trim();
-    if (!text) return;
-    setChat({
-      user: text,
-      bot:
-        BOT_ANSWERS[text.toLowerCase()] ??
-        "Це я ще вчу. Спробуй RIZZ, CORECORE або GEN Z НА РОБОТІ.",
-    });
+    if (!text || botBusy) return;
+
+    if (!userRef.current) {
+      userRef.current =
+        globalThis.crypto?.randomUUID?.() ?? String(Date.now());
+    }
+    const thinking = THINKING[Math.floor(Math.random() * THINKING.length)];
+    setChat((current) =>
+      [...current, { role: "user" as const, text },
+       { role: "bot" as const, text: thinking, kind: "pending" as const }]
+        .slice(-CHAT_LIMIT * 2),
+    );
     setBotInput("");
+    setBotBusy(true);
+
+    let reply: ChatTurn = {
+      role: "bot",
+      text: "не дістаюся до себе самого 😵 спробуй ще раз",
+      kind: "error",
+    };
+    try {
+      const response = await fetch("/api/waitbot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: text,
+          user: userRef.current,
+          conversationId: conversationRef.current,
+        }),
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        conversationId?: string;
+        error?: string;
+      };
+      if (response.ok && body.answer) {
+        reply = { role: "bot", text: body.answer };
+        conversationRef.current = body.conversationId ?? "";
+      } else if (body.error) {
+        reply = { role: "bot", text: body.error, kind: "error" };
+        // Застаріла розмова: наступне питання має початися з чистого аркуша,
+        // інакше Dify відповідатиме тією самою помилкою вічно.
+        if (response.status === 502) conversationRef.current = "";
+      }
+    } catch {
+      // reply уже містить текст помилки
+    }
+
+    // Замінюємо саме «думаю», а не останній елемент: поки чекали відповідь,
+    // користувач міг нічого не додати, але припущення тут дешевше не робити.
+    setChat((current) => {
+      const next = [...current];
+      for (let i = next.length - 1; i >= 0; i -= 1) {
+        if (next[i].kind === "pending") {
+          next[i] = reply;
+          return next;
+        }
+      }
+      return [...next, reply];
+    });
+    setBotBusy(false);
   };
 
-  const resetDesktop = () => {
-    setHeroOpen(true);
-    setBotOpen(true);
-    applyFacet("all");
-  };
+  // Лог росте вниз, тому після кожної репліки прокручуємо в кінець: інакше
+  // відповідь з'являється за межею видимої частини вікна.
+  useEffect(() => {
+    const node = logRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [chat]);
+
+  /** Спільні пропси хрому вікна — щоб не повторювати п'ять однакових рядків. */
+  const chromeFor = (id: WindowId) => ({
+    state: windows[id],
+    onFocus: () => focusWindow(id),
+    onMinimize: () => patchWindow(id, { open: false }),
+    onClose: () => closeWindow(id),
+    onToggleMax: () => {
+      patchWindow(id, { max: !windows[id].max });
+      focusWindow(id);
+    },
+    onMove: (x: number, y: number) => patchWindow(id, { x, y }),
+  });
 
   return (
     <main className="desktop-shell">
@@ -338,7 +410,10 @@ export default function ReaderDesktop({
       <header className="topbar glass-panel">
         <button
           className="brand"
-          onClick={resetDesktop}
+          onClick={() => {
+            openWindow("welcome");
+            applyFacet("all");
+          }}
           aria-label="Wait, What? — на початок"
         >
           WAIT, WHAT? <span aria-hidden="true">✨</span>
@@ -354,6 +429,12 @@ export default function ReaderDesktop({
               {FACET_LABELS[item]}
             </button>
           ))}
+          <button
+            onClick={() => openWindow("glossary")}
+            aria-pressed={windows.glossary.open}
+          >
+            Глосарій
+          </button>
         </nav>
 
         <label className="search-box">
@@ -369,30 +450,13 @@ export default function ReaderDesktop({
 
       <section className="desktop-area" aria-label="Робочий стіл Wait, What?">
         {/* ------------------------------------------------------------ герой */}
-        {heroOpen && (
-          <section
-            className="hero-window app-window"
-            style={heroDrag.style}
-            aria-labelledby="hero-title"
+        {windows.welcome.open && (
+          <DesktopWindow
+            className="hero-window"
+            labelledBy="hero-title"
+            title={<span>{WINDOW_META.welcome.file}</span>}
+            {...chromeFor("welcome")}
           >
-            <div className="titlebar drag-handle" {...heroDrag.handlers}>
-              <span>waitwhat://welcome</span>
-              <div className="window-controls">
-                <button
-                  onClick={() => setHeroOpen(false)}
-                  aria-label="Згорнути вікно"
-                >
-                  −
-                </button>
-                <button aria-label="Розгорнути вікно">□</button>
-                <button
-                  onClick={() => setHeroOpen(false)}
-                  aria-label="Закрити вікно"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
             <div className="hero-content">
               <div className="hero-sparkles" aria-hidden="true">
                 ✦<span>✦</span>
@@ -418,34 +482,17 @@ export default function ReaderDesktop({
                 ПОЧАТИ ЧИТАТИ <span aria-hidden="true">↗</span>
               </button>
             </div>
-          </section>
+          </DesktopWindow>
         )}
 
         {/* ---------------------------------------------------------- waitbot */}
-        {botOpen && (
-          <aside
-            className="bot-window app-window"
-            style={botDrag.style}
-            aria-labelledby="bot-title"
+        {windows.waitbot.open && (
+          <DesktopWindow
+            className="bot-window"
+            labelledBy="bot-title"
+            title={<strong id="bot-title">ЗАПИТАЙ WAITBOT</strong>}
+            {...chromeFor("waitbot")}
           >
-            <div className="titlebar drag-handle" {...botDrag.handlers}>
-              <strong id="bot-title">ЗАПИТАЙ WAITBOT</strong>
-              <div className="window-controls">
-                <button
-                  onClick={() => setBotOpen(false)}
-                  aria-label="Згорнути вікно"
-                >
-                  −
-                </button>
-                <button aria-label="Розгорнути вікно">□</button>
-                <button
-                  onClick={() => setBotOpen(false)}
-                  aria-label="Закрити вікно"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
             <div className="bot-content">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -459,29 +506,44 @@ export default function ReaderDesktop({
                 Твій гід у світі Gen Z.
               </div>
 
-              <div className="chat-log" aria-live="polite">
-                {chat && (
-                  <>
-                    <p className="chat-message user">{chat.user}</p>
-                    <p className="chat-message bot">{chat.bot}</p>
-                  </>
-                )}
-              </div>
+              {/* Порожній лог не малюємо: він забирав сотню пікселів висоти й
+                  підсовував вікно бота під стрічку статей */}
+              {chat.length > 0 && (
+                <div className="chat-log" aria-live="polite" ref={logRef}>
+                  {chat.map((turn, index) => (
+                    <p
+                      key={index}
+                      className={cn(
+                        "chat-message",
+                        turn.role,
+                        turn.kind === "pending" && "pending",
+                        turn.kind === "error" && "error",
+                      )}
+                    >
+                      {turn.text}
+                    </p>
+                  ))}
+                </div>
+              )}
 
               <form
                 className="bot-form"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  askBot(botInput);
+                  void askBot(botInput);
                 }}
               >
                 <input
                   value={botInput}
                   onChange={(event) => setBotInput(event.target.value)}
-                  placeholder="Який тренд хочеш зрозуміти?"
-                  aria-label="Запитати WaitBot про тренд"
+                  placeholder="Слово, фраза або «переклади на зумерську»"
+                  aria-label="Запитати WaitBot про сленг"
+                  maxLength={500}
+                  disabled={botBusy}
                 />
-                <button aria-label="Надіслати">↑</button>
+                <button aria-label="Надіслати" disabled={botBusy}>
+                  {botBusy ? "…" : "↑"}
+                </button>
               </form>
 
               <p className="try-label">Спробуй запитати:</p>
@@ -490,6 +552,7 @@ export default function ReaderDesktop({
                   <button
                     key={prompt}
                     type="button"
+                    disabled={botBusy}
                     onClick={() => askBot(prompt)}
                   >
                     {prompt}
@@ -497,7 +560,43 @@ export default function ReaderDesktop({
                 ))}
               </div>
             </div>
-          </aside>
+          </DesktopWindow>
+        )}
+
+        {/* --------------------------------------------------------- глосарій */}
+        {windows.glossary.open && (
+          <DesktopWindow
+            className="tool-window win-glossary"
+            labelledBy="glossary-title"
+            title={<strong id="glossary-title">ГЛОСАРІЙ</strong>}
+            {...chromeFor("glossary")}
+          >
+            <GlossaryBody articles={articles} onPick={searchFor} />
+          </DesktopWindow>
+        )}
+
+        {/* ------------------------------------------------------------ свіже */}
+        {windows.feed.open && (
+          <DesktopWindow
+            className="tool-window win-feed"
+            labelledBy="feed-title"
+            title={<strong id="feed-title">СВІЖЕ</strong>}
+            {...chromeFor("feed")}
+          >
+            <FeedBody articles={articles} onOpen={setOpenId} />
+          </DesktopWindow>
+        )}
+
+        {/* ------------------------------------------------------ про студію */}
+        {windows.about.open && (
+          <DesktopWindow
+            className="tool-window win-about"
+            labelledBy="about-title"
+            title={<strong id="about-title">ПРО СТУДІЮ</strong>}
+            {...chromeFor("about")}
+          >
+            <AboutBody counts={counts} />
+          </DesktopWindow>
         )}
 
         {/* ----------------------------------------------------------- ярлики */}
@@ -537,10 +636,18 @@ export default function ReaderDesktop({
           <Shortcut
             icon="✦"
             iconClass="shortcut-glossary"
-            label="Демо"
-            hint={`${counts.demo} з макета`}
-            active={facet === "demo"}
-            onClick={() => applyFacet("demo")}
+            label="Глосарій"
+            hint="терміни статей"
+            active={windows.glossary.open}
+            onClick={() => openWindow("glossary")}
+          />
+          <Shortcut
+            icon="◈"
+            iconClass="shortcut-about"
+            label="Про студію"
+            hint="як це працює"
+            active={windows.about.open}
+            onClick={() => openWindow("about")}
           />
         </section>
 
@@ -613,52 +720,15 @@ export default function ReaderDesktop({
         </section>
       </section>
 
-      {/* ---------------------------------------------------------- таскбар */}
-      <footer className="taskbar glass-panel" aria-label="Панель завдань">
-        <button
-          className="start-button"
-          onClick={resetDesktop}
-          aria-label="Відкрити все"
-        >
-          ✦
-        </button>
-        <div className="task-apps">
-          <button onClick={() => setHeroOpen(true)} aria-pressed={heroOpen}>
-            <span aria-hidden="true">📁</span> Головна
-          </button>
-          <button onClick={() => applyFacet("all")} aria-pressed={facet === "all"}>
-            <span aria-hidden="true">📂</span> Статті
-          </button>
-          <button
-            onClick={() => applyFacet("ready")}
-            aria-pressed={facet === "ready"}
-          >
-            <span aria-hidden="true">▣</span> Готові
-          </button>
-          <button
-            onClick={() => {
-              setFacet("saved");
-              setQuery("");
-            }}
-            aria-pressed={facet === "saved"}
-          >
-            <span aria-hidden="true">🔖</span> Збережене
-          </button>
-          <button onClick={() => setBotOpen(true)} aria-pressed={botOpen}>
-            <span aria-hidden="true">✨</span> WaitBot
-          </button>
-        </div>
-        <div className="system-tray">
-          <span aria-hidden="true">⌃</span>
-          <span aria-hidden="true">◔</span>
-          <span aria-hidden="true">◖</span>
-          <time>
-            {clock.time}
-            <br />
-            <small>{clock.date}</small>
-          </time>
-        </div>
-      </footer>
+      <Taskbar
+        windows={windows}
+        facet={facet}
+        draftCount={counts.draft}
+        onOpenWindow={openWindow}
+        onToggleWindow={toggleWindow}
+        onCloseAll={closeAllWindows}
+        onFacet={applyFacet}
+      />
 
       {openArticle && (
         <ArticleWindow
@@ -694,12 +764,8 @@ function Shortcut({
   onClick: () => void;
 }) {
   return (
-    <button
-      className="desktop-shortcut"
-      onClick={onClick}
-      aria-pressed={active}
-    >
-      <span className={`shortcut-icon ${iconClass}`} aria-hidden="true">
+    <button className="desktop-shortcut" onClick={onClick} aria-pressed={active}>
+      <span className={cn("shortcut-icon", iconClass)} aria-hidden="true">
         {icon}
       </span>
       <strong>{label}</strong>

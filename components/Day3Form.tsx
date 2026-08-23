@@ -9,14 +9,9 @@ import {
   toMetrics,
   type Day3Article,
 } from "@/lib/day-tables";
-import { Field, SelectField, TextField, Textarea } from "./ui/Field";
+import { Field, TextField, Textarea } from "./ui/Field";
 import { JsonTextarea } from "./ui/JsonTextarea";
 import { FormFooter } from "./ui/FormFooter";
-
-const PIPELINE_OPTIONS = [
-  { value: "baseline", label: "Baseline — перша робоча версія" },
-  { value: "optimized", label: "Optimized — оптимізований флоу" },
-];
 
 export default function Day3Form({
   projectId,
@@ -44,26 +39,9 @@ export default function Day3Form({
         name="run_id"
         required
         defaultValue={state.values?.run_id ?? record?.run_id ?? ""}
-        hint="day3-base-… або day3-opt-… — формат у контракті §9"
+        hint="Формат — у контракті §9"
         className="field-mono"
       />
-
-      <div className="grid gap-5 sm:grid-cols-2">
-        <SelectField
-          label="Пайплайн"
-          name="pipeline"
-          options={PIPELINE_OPTIONS}
-          defaultValue={state.values?.pipeline ?? record?.pipeline ?? "baseline"}
-          hint="Що саме порівнюємо в таблиці «до/після»"
-        />
-        <TextField
-          label="Варіант"
-          name="variant"
-          placeholder="opt-v2"
-          defaultValue={state.values?.variant ?? record?.variant ?? ""}
-          hint="Мітка ітерації оптимізації, якщо їх кілька"
-        />
-      </div>
 
       <TextField
         label="ID плану Дня 2"
