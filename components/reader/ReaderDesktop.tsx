@@ -17,10 +17,17 @@ import {
 import { cn } from "@/lib/ui";
 import ArticleWindow from "./ArticleWindow";
 import DesktopWindow, {
-  WINDOW_META,
+  lookupKeyOf,
+  lookupWindowId,
+  windowMeta,
   type WindowId,
   type WindowState,
 } from "./DesktopWindow";
+import { DictionaryEntryBody, SlangBookBody } from "./DictionaryWindows";
+import type { WaitbotLang } from "@/lib/waitbot";
+import { useWaitbotSettings } from "@/lib/waitbot-settings";
+import SlangText from "./SlangText";
+import { loadSlangIndex, type SlangIndex } from "@/lib/slang-client";
 import Taskbar from "./Taskbar";
 import { AboutBody, FeedBody, GlossaryBody } from "./ToolWindows";
 
@@ -54,14 +61,27 @@ const THINKING = [
  *  сама розмова живе в Dify, лог тут — лише те, що видно. */
 const CHAT_LIMIT = 8;
 
-type ChatTurn = { role: "user" | "bot"; text: string; kind?: "pending" | "error" };
+type ChatMeme = { url: string; title: string; meaning: string };
+type ChatTurn = {
+  role: "user" | "bot";
+  text: string;
+  kind?: "pending" | "error";
+  meme?: ChatMeme;
+};
+
+const LANG_LABELS: Record<WaitbotLang, string> = {
+  auto: "АВТО",
+  uk: "УКР",
+  en: "ENG",
+};
 
 // По одній на кожну гілку воркфлоу: пояснити слово, розібрати фразу зі
-// сленгом, перекласти НА зумерську.
+// сленгом, перекласти НА зумерську, дати мем.
 const BOT_PROMPTS = [
   "ЩО ТАКЕ RIZZ",
   "HE HAS NO RIZZ FR FR",
   "ПЕРЕКЛАДИ: ВІН ДУЖЕ ВПЕВНЕНИЙ У СОБІ, ХОЧА ПІДСТАВ НЕМА",
+  "КИНЬ МЕМ ПРО ПОНЕДІЛОК",
 ];
 
 /** Фасети в тому порядку, в якому вони стоять у меню топбара. */
@@ -75,10 +95,22 @@ const WINDOW_Z_BASE = 12;
 const INITIAL_WINDOWS: Record<WindowId, WindowState> = {
   welcome: { open: true, max: false, x: 0, y: 0, z: WINDOW_Z_BASE },
   waitbot: { open: true, max: false, x: 0, y: 0, z: WINDOW_Z_BASE + 1 },
-  glossary: { open: false, max: false, x: 0, y: 0, z: WINDOW_Z_BASE + 2 },
-  feed: { open: false, max: false, x: 0, y: 0, z: WINDOW_Z_BASE + 3 },
-  about: { open: false, max: false, x: 0, y: 0, z: WINDOW_Z_BASE + 4 },
+  slangbook: { open: false, max: false, x: 0, y: 0, z: WINDOW_Z_BASE + 2 },
+  glossary: { open: false, max: false, x: 0, y: 0, z: WINDOW_Z_BASE + 3 },
+  feed: { open: false, max: false, x: 0, y: 0, z: WINDOW_Z_BASE + 4 },
+  about: { open: false, max: false, x: 0, y: 0, z: WINDOW_Z_BASE + 5 },
 };
+
+/** Кожне наступне словникове вікно зсувається, щоб не лягало точно на попереднє. */
+const LOOKUP_CASCADE = 26;
+
+const blankWindow = (offset: number, z: number): WindowState => ({
+  open: true,
+  max: false,
+  x: offset,
+  y: offset,
+  z,
+});
 
 export default function ReaderDesktop({
   articles,
@@ -101,8 +133,23 @@ export default function ReaderDesktop({
   const [chat, setChat] = useState<ChatTurn[]>([]);
   const [botInput, setBotInput] = useState("");
   const [botBusy, setBotBusy] = useState(false);
+  const [botSettingsOpen, setBotSettingsOpen] = useState(false);
+  // Налаштування живуть у localStorage через зовнішнє сховище, а не в
+  // useState: деталі й причина — у lib/waitbot-settings.ts.
+  const [botSettings, patchSettings] = useWaitbotSettings();
   // conversation_id носить клієнт, а не сервер: розмова прив'язана до вкладки,
   // і Dify не треба питати про історію окремим запитом, як це робить /aislop.
+  // Індекс словника (389 рядків, ~90 КБ) тягнеться ЛІНИВО: на сторінці, куди
+  // прийшли читати статтю, він не потрібен узагалі. Привід завантажити —
+  // перша репліка в чаті або відкрите словникове вікно.
+  const [slangIndex, setSlangIndex] = useState<SlangIndex | null>(null);
+  const slangAsked = useRef(false);
+  const ensureSlang = useCallback(() => {
+    if (slangAsked.current) return;
+    slangAsked.current = true;
+    loadSlangIndex().then(setSlangIndex);
+  }, []);
+
   const conversationRef = useRef("");
   const userRef = useRef("");
   const logRef = useRef<HTMLDivElement | null>(null);
@@ -122,9 +169,14 @@ export default function ReaderDesktop({
   );
 
   // ------------------------------------------------------------------ вікна
+  // Динамічне вікно (`lookup:<слово>`) стану ще не має, тому спред по
+  // `prev[id]` дав би об'єкт без обов'язкових полів і вікно без геометрії.
   const patchWindow = useCallback(
     (id: WindowId, patch: Partial<WindowState>) => {
-      setWindows((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+      setWindows((prev) => {
+        const base = prev[id] ?? blankWindow(0, WINDOW_Z_BASE);
+        return { ...prev, [id]: { ...base, ...patch } };
+      });
     },
     [],
   );
@@ -150,16 +202,48 @@ export default function ReaderDesktop({
 
   const openWindow = useCallback(
     (id: WindowId) => {
+      if (id === "slangbook" || lookupKeyOf(id) !== null) ensureSlang();
       patchWindow(id, { open: true });
       focusWindow(id);
     },
-    [focusWindow, patchWindow],
+    [ensureSlang, focusWindow, patchWindow],
+  );
+
+  /**
+   * Відкриває статтю словника про слово.
+   *
+   * Правило «одне вікно на одне слово» тут не перевіряється окремо — воно
+   * випливає з того, що id вікна це саме слово: повторний клік по «rizz»
+   * знаходить наявний стан і просто піднімає вікно нагору, а різні слова
+   * дають різні id і живуть поруч.
+   */
+  const openLookup = useCallback(
+    (key: string) => {
+      const trimmed = key.trim().toLowerCase();
+      if (!trimmed) return;
+      const id = lookupWindowId(trimmed);
+      ensureSlang();
+      setWindows((prev) => {
+        const existing = prev[id];
+        if (existing) {
+          // Було згорнуте — розгортаємо, лишаючи місце, де стояло.
+          return existing.open ? prev : { ...prev, [id]: { ...existing, open: true } };
+        }
+        const openLookups = Object.keys(prev).filter(
+          (other) => lookupKeyOf(other) !== null && prev[other]?.open,
+        ).length;
+        const offset = (openLookups % 6) * LOOKUP_CASCADE;
+        return { ...prev, [id]: blankWindow(offset, WINDOW_Z_BASE) };
+      });
+      focusWindow(id);
+    },
+    [ensureSlang, focusWindow],
   );
 
   /** Клік по кнопці в таскбарі: згортає відкрите, відновлює згорнуте. */
   const toggleWindow = useCallback(
     (id: WindowId) => {
-      if (windows[id].open) patchWindow(id, { open: false });
+      if (windows[id]?.open) patchWindow(id, { open: false });
       else openWindow(id);
     },
     [openWindow, patchWindow, windows],
@@ -171,6 +255,17 @@ export default function ReaderDesktop({
    */
   const closeWindow = useCallback(
     (id: WindowId) => {
+      // Словникове вікно закривається НАСОВСІМ: постійні п'ять лишаються в
+      // стані згорнутими, а тримати мертвий стан на кожне слово, яке колись
+      // подивилися, означало б засмічений таскбар і зростання пам'яті.
+      if (lookupKeyOf(id) !== null) {
+        setWindows((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        return;
+      }
       patchWindow(id, { open: false, max: false, x: 0, y: 0 });
     },
     [patchWindow],
@@ -178,9 +273,13 @@ export default function ReaderDesktop({
 
   const closeAllWindows = useCallback(() => {
     setWindows((prev) => {
-      const next = { ...prev };
-      for (const key of Object.keys(prev) as WindowId[]) {
-        next[key] = { ...prev[key], open: false, max: false, x: 0, y: 0 };
+      const next: Record<WindowId, WindowState> = {};
+      for (const key of Object.keys(prev)) {
+        // Динамічні вікна не «згортаються всі», а зникають: вони й з'явилися
+        // від кліку, а не з меню.
+        if (lookupKeyOf(key) !== null) continue;
+        const state = prev[key];
+        if (state) next[key] = { ...state, open: false, max: false, x: 0, y: 0 };
       }
       return next;
     });
@@ -318,6 +417,7 @@ export default function ReaderDesktop({
   const askBot = async (message: string) => {
     const text = message.trim();
     if (!text || botBusy) return;
+    ensureSlang();
 
     if (!userRef.current) {
       userRef.current =
@@ -345,15 +445,17 @@ export default function ReaderDesktop({
           query: text,
           user: userRef.current,
           conversationId: conversationRef.current,
+          settings: botSettings,
         }),
       });
       const body = (await response.json()) as {
         answer?: string;
+        meme?: ChatMeme | null;
         conversationId?: string;
         error?: string;
       };
       if (response.ok && body.answer) {
-        reply = { role: "bot", text: body.answer };
+        reply = { role: "bot", text: body.answer, meme: body.meme ?? undefined };
         conversationRef.current = body.conversationId ?? "";
       } else if (body.error) {
         reply = { role: "bot", text: body.error, kind: "error" };
@@ -389,16 +491,19 @@ export default function ReaderDesktop({
 
   /** Спільні пропси хрому вікна — щоб не повторювати п'ять однакових рядків. */
   const chromeFor = (id: WindowId) => ({
-    state: windows[id],
+    // Вікно рендериться лише коли `open`, тож стан тут завжди є; заглушка
+    // потрібна типам, а не рантайму.
+    state: windows[id] ?? blankWindow(0, WINDOW_Z_BASE),
     onFocus: () => focusWindow(id),
     onMinimize: () => patchWindow(id, { open: false }),
     onClose: () => closeWindow(id),
     onToggleMax: () => {
-      patchWindow(id, { max: !windows[id].max });
+      patchWindow(id, { max: !windows[id]?.max });
       focusWindow(id);
     },
     onMove: (x: number, y: number) => patchWindow(id, { x, y }),
   });
+
 
   return (
     <main className="desktop-shell">
@@ -450,11 +555,11 @@ export default function ReaderDesktop({
 
       <section className="desktop-area" aria-label="Робочий стіл Wait, What?">
         {/* ------------------------------------------------------------ герой */}
-        {windows.welcome.open && (
+        {windows.welcome?.open && (
           <DesktopWindow
             className="hero-window"
             labelledBy="hero-title"
-            title={<span>{WINDOW_META.welcome.file}</span>}
+            title={<span>{windowMeta("welcome").file}</span>}
             {...chromeFor("welcome")}
           >
             <div className="hero-content">
@@ -486,7 +591,7 @@ export default function ReaderDesktop({
         )}
 
         {/* ---------------------------------------------------------- waitbot */}
-        {windows.waitbot.open && (
+        {windows.waitbot?.open && (
           <DesktopWindow
             className="bot-window"
             labelledBy="bot-title"
@@ -504,24 +609,82 @@ export default function ReaderDesktop({
                 Привіт! Я <strong>WAITBOT ✨</strong>
                 <br />
                 Твій гід у світі Gen Z.
+                <button
+                  type="button"
+                  className="bot-gear"
+                  aria-expanded={botSettingsOpen}
+                  aria-label="Налаштування відповідей"
+                  onClick={() => setBotSettingsOpen((open) => !open)}
+                >
+                  ⚙
+                </button>
               </div>
+
+              {botSettingsOpen && (
+                <div className="bot-settings">
+                  <label>
+                    Мова відповіді
+                    <span className="seg">
+                      {(["auto", "uk", "en"] as WaitbotLang[]).map((code) => (
+                        <button
+                          key={code}
+                          type="button"
+                          className={cn(botSettings.lang === code && "on")}
+                          aria-pressed={botSettings.lang === code}
+                          onClick={() => patchSettings({ lang: code })}
+                        >
+                          {LANG_LABELS[code]}
+                        </button>
+                      ))}
+                    </span>
+                  </label>
+                  <label className="row">
+                    <input
+                      type="checkbox"
+                      checked={botSettings.memesAfterTranslate}
+                      onChange={(event) =>
+                        patchSettings({ memesAfterTranslate: event.target.checked })
+                      }
+                    />
+                    Мем після перекладу
+                  </label>
+                </div>
+              )}
 
               {/* Порожній лог не малюємо: він забирав сотню пікселів висоти й
                   підсовував вікно бота під стрічку статей */}
               {chat.length > 0 && (
                 <div className="chat-log" aria-live="polite" ref={logRef}>
                   {chat.map((turn, index) => (
-                    <p
-                      key={index}
-                      className={cn(
-                        "chat-message",
-                        turn.role,
-                        turn.kind === "pending" && "pending",
-                        turn.kind === "error" && "error",
+                    <div key={index} className="chat-turn">
+                      <p
+                        className={cn(
+                          "chat-message",
+                          turn.role,
+                          turn.kind === "pending" && "pending",
+                          turn.kind === "error" && "error",
+                        )}
+                      >
+                        <SlangText
+                          text={turn.text}
+                          index={slangIndex}
+                          onLookup={openLookup}
+                        />
+                      </p>
+                      {turn.meme && (
+                        /* Мем приходить окремим полем, а не посиланням у
+                           тексті: у чат летить картинка, а не URL, який
+                           людині довелося б відкривати вручну. */
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          className="chat-meme"
+                          src={turn.meme.url}
+                          alt={turn.meme.title || "мем"}
+                          title={turn.meme.meaning}
+                          loading="lazy"
+                        />
                       )}
-                    >
-                      {turn.text}
-                    </p>
+                    </div>
                   ))}
                 </div>
               )}
@@ -563,8 +726,49 @@ export default function ReaderDesktop({
           </DesktopWindow>
         )}
 
+        {/* -------------------------------------------------------- словник */}
+        {windows.slangbook?.open && (
+          <DesktopWindow
+            className="tool-window win-slangbook"
+            labelledBy="slangbook-title"
+            title={<strong id="slangbook-title">СЛОВНИК ЗУМЕРСЬКОЇ</strong>}
+            {...chromeFor("slangbook")}
+          >
+            <SlangBookBody index={slangIndex} onLookup={openLookup} />
+          </DesktopWindow>
+        )}
+
+        {/* ------------------------------------------- статті окремих слів
+            По одному вікну на слово. Правило «двічі те саме не відкрити»
+            тримає не перевірка, а сам id: він і є слово. */}
+        {Object.keys(windows)
+          .filter((id) => lookupKeyOf(id) !== null && windows[id]?.open)
+          .map((id) => {
+            const key = lookupKeyOf(id) as string;
+            const known = slangIndex?.byKey.get(key);
+            return (
+              <DesktopWindow
+                key={id}
+                className="tool-window win-lookup"
+                labelledBy={`${id}-title`}
+                title={
+                  <strong id={`${id}-title`}>
+                    {(known?.term ?? key).toUpperCase()}
+                  </strong>
+                }
+                {...chromeFor(id)}
+              >
+                <DictionaryEntryBody
+                  entryKey={key}
+                  fallback={known}
+                  onLookup={openLookup}
+                />
+              </DesktopWindow>
+            );
+          })}
+
         {/* --------------------------------------------------------- глосарій */}
-        {windows.glossary.open && (
+        {windows.glossary?.open && (
           <DesktopWindow
             className="tool-window win-glossary"
             labelledBy="glossary-title"
@@ -576,7 +780,7 @@ export default function ReaderDesktop({
         )}
 
         {/* ------------------------------------------------------------ свіже */}
-        {windows.feed.open && (
+        {windows.feed?.open && (
           <DesktopWindow
             className="tool-window win-feed"
             labelledBy="feed-title"
@@ -588,7 +792,7 @@ export default function ReaderDesktop({
         )}
 
         {/* ------------------------------------------------------ про студію */}
-        {windows.about.open && (
+        {windows.about?.open && (
           <DesktopWindow
             className="tool-window win-about"
             labelledBy="about-title"

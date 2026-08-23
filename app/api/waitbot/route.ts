@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { askWaitbot, WAITBOT_MAX_QUERY, waitbotConfig } from "@/lib/waitbot";
+import {
+  askWaitbot,
+  WAITBOT_DEFAULTS,
+  WAITBOT_MAX_QUERY,
+  waitbotConfig,
+  type WaitbotLang,
+  type WaitbotSettings,
+} from "@/lib/waitbot";
 
 /**
  * Публічний ендпоінт вікна WaitBot на `/blog`.
@@ -50,6 +57,26 @@ export async function GET() {
   });
 }
 
+const LANGS: WaitbotLang[] = ["auto", "uk", "en"];
+
+/**
+ * Налаштування з вікна чату. Клієнту тут довіри нуль — не через зловмисника,
+ * а тому що поламане значення поїхало б у воркфлоу вхідною змінною й тихо
+ * зіпсувало б промпт. Невідома мова = `auto`, невідомий прапорець = дефолт.
+ */
+function readSettings(raw: unknown): WaitbotSettings {
+  if (!raw || typeof raw !== "object") return WAITBOT_DEFAULTS;
+  const value = raw as { lang?: unknown; memesAfterTranslate?: unknown };
+  const lang = LANGS.includes(value.lang as WaitbotLang)
+    ? (value.lang as WaitbotLang)
+    : WAITBOT_DEFAULTS.lang;
+  const memes =
+    typeof value.memesAfterTranslate === "boolean"
+      ? value.memesAfterTranslate
+      : WAITBOT_DEFAULTS.memesAfterTranslate;
+  return { lang, memesAfterTranslate: memes };
+}
+
 export async function POST(request: Request) {
   const ip =
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
@@ -62,7 +89,12 @@ export async function POST(request: Request) {
     );
   }
 
-  let payload: { query?: unknown; conversationId?: unknown; user?: unknown };
+  let payload: {
+    query?: unknown;
+    conversationId?: unknown;
+    user?: unknown;
+    settings?: unknown;
+  };
   try {
     payload = await request.json();
   } catch {
@@ -90,7 +122,7 @@ export async function POST(request: Request) {
       ? payload.conversationId.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 64)
       : "";
 
-  const result = await askWaitbot({ query, user, conversationId });
+  const result = await askWaitbot({ query, user, conversationId, settings: readSettings(payload.settings) });
   if ("error" in result) {
     return NextResponse.json({ error: result.error }, { status: 502 });
   }

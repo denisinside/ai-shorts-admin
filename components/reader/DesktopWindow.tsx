@@ -16,23 +16,75 @@ import { cn } from "@/lib/ui";
  * розмонтоване й власного стану вже не має.
  */
 
-export type WindowId = "welcome" | "waitbot" | "glossary" | "feed" | "about";
+/**
+ * Id вікна — рядок, а не union із п'яти назв.
+ *
+ * ЧОМУ ТАК. Вікна словника відкриваються НА СЛОВО: скільком словам людина
+ * захотіла подивитися значення, стільком і бути вікнам. Такий id виглядає як
+ * `lookup:rizz`, і саме він дає правило «одне вікно на одне слово, різні
+ * слова — різні вікна» безкоштовно: повторне відкриття того самого слова
+ * знаходить наявний стан і просто піднімає вікно нагору.
+ */
+export type WindowId = string;
+
+/** Постійні вікна: вони є завжди й мають плитку в меню «Пуск». */
+export const FIXED_WINDOWS = [
+  "welcome",
+  "waitbot",
+  "slangbook",
+  "glossary",
+  "feed",
+  "about",
+] as const;
+
+export type FixedWindowId = (typeof FIXED_WINDOWS)[number];
+
+export type WindowMeta = { label: string; icon: string; file: string };
 
 /**
  * Опис вікон в одному місці: за ним будуються і кнопки в таскбарі, і плитки в
  * меню «Пуск», і титульні рядки. Додати вікно — це рядок тут плюс вміст у
  * `ToolWindows`, а не правки в трьох файлах.
  */
-export const WINDOW_META: Record<
-  WindowId,
-  { label: string; icon: string; file: string }
-> = {
+export const WINDOW_META: Record<FixedWindowId, WindowMeta> = {
   welcome: { label: "Головна", icon: "📁", file: "waitwhat://welcome" },
   waitbot: { label: "WaitBot", icon: "✨", file: "waitwhat://waitbot" },
+  slangbook: { label: "Словник", icon: "📖", file: "waitwhat://slang" },
   glossary: { label: "Глосарій", icon: "▣", file: "waitwhat://glossary" },
   feed: { label: "Свіже", icon: "📂", file: "waitwhat://feed" },
   about: { label: "Про студію", icon: "◈", file: "waitwhat://about" },
 };
+
+/** Префікс динамічних вікон словника. `lookup:<key>` -> стаття про слово. */
+export const LOOKUP_PREFIX = "lookup:";
+
+export const lookupWindowId = (key: string) => `${LOOKUP_PREFIX}${key}`;
+
+export const lookupKeyOf = (id: WindowId) =>
+  id.startsWith(LOOKUP_PREFIX) ? id.slice(LOOKUP_PREFIX.length) : null;
+
+/**
+ * Опис будь-якого вікна, у тому числі динамічного. Підпис словникового вікна —
+ * саме слово: у таскбарі мусить бути видно, яке з п'яти відкритих вікон
+ * котре, а «Словник» × 5 не відрізнити.
+ */
+export function windowMeta(id: WindowId, label?: string): WindowMeta {
+  const key = lookupKeyOf(id);
+  if (key !== null) {
+    return {
+      label: label ?? key,
+      icon: "🔖",
+      file: `waitwhat://slang/${key.replace(/\s+/g, "-")}`,
+    };
+  }
+  return (
+    WINDOW_META[id as FixedWindowId] ?? {
+      label: id,
+      icon: "▢",
+      file: `waitwhat://${id}`,
+    }
+  );
+}
 
 export type WindowState = {
   open: boolean;

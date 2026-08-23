@@ -9,7 +9,12 @@ import {
 } from "react";
 import { cn } from "@/lib/ui";
 import { FACET_LABELS, type ReaderFacet } from "@/lib/reader";
-import { WINDOW_META, type WindowId, type WindowState } from "./DesktopWindow";
+import {
+  FIXED_WINDOWS,
+  windowMeta,
+  type WindowId,
+  type WindowState,
+} from "./DesktopWindow";
 
 /**
  * Панель завдань. Робить те саме, що робить справжня: тримає меню «Пуск»,
@@ -177,7 +182,7 @@ export default function Taskbar({
   onCloseAll,
   onFacet,
 }: {
-  windows: Record<WindowId, WindowState>;
+  windows: Record<WindowId, WindowState | undefined>;
   facet: ReaderFacet;
   /** Скільки чернеток чекає на рішення — це і є «сповіщення» в треї. */
   draftCount: number;
@@ -227,7 +232,17 @@ export default function Taskbar({
     };
   }, [startOpen, trayOpen]);
 
-  const windowIds = Object.keys(WINDOW_META) as WindowId[];
+  // Плитки в меню «Пуск» — лише постійні вікна: словникові з'являються від
+  // кліку по слову, і місця під них у меню бути не може.
+  const fixedIds = FIXED_WINDOWS as readonly WindowId[];
+  // У рядку запущених — постійні плюс ті словникові, які зараз відкриті:
+  // таскбар мусить уміти згорнути й відновити будь-яке вікно на столі.
+  const runningIds = [
+    ...fixedIds,
+    ...Object.keys(windows).filter(
+      (id) => !fixedIds.includes(id) && windows[id]?.open,
+    ),
+  ];
   const batteryPercent = battery ? Math.round(battery.level * 100) : null;
 
   return (
@@ -251,7 +266,7 @@ export default function Taskbar({
           </p>
 
           <div className="start-menu__grid">
-            {windowIds.map((id) => (
+            {fixedIds.map((id) => (
               <button
                 key={id}
                 onClick={() => {
@@ -259,9 +274,9 @@ export default function Taskbar({
                   setStartOpen(false);
                 }}
               >
-                <span aria-hidden="true">{WINDOW_META[id].icon}</span>
-                {WINDOW_META[id].label}
-                {windows[id].open && (
+                <span aria-hidden="true">{windowMeta(id).icon}</span>
+                {windowMeta(id).label}
+                {windows[id]?.open && (
                   <b aria-label="відкрито" title="відкрито" />
                 )}
               </button>
@@ -299,20 +314,20 @@ export default function Taskbar({
       {/* Кнопки вікон: підкреслення означає «відкрито», клік згортає й
           відновлює — рівно як у панелі справжньої системи */}
       <div className="task-apps">
-        {windowIds.map((id) => (
+        {runningIds.map((id) => (
           <button
             key={id}
-            className={cn(windows[id].open && "is-running")}
+            className={cn(windows[id]?.open && "is-running")}
             onClick={() => onToggleWindow(id)}
-            aria-pressed={windows[id].open}
+            aria-pressed={Boolean(windows[id]?.open)}
             title={
-              windows[id].open
-                ? `Згорнути «${WINDOW_META[id].label}»`
-                : `Відкрити «${WINDOW_META[id].label}»`
+              windows[id]?.open
+                ? `Згорнути «${windowMeta(id).label}»`
+                : `Відкрити «${windowMeta(id).label}»`
             }
           >
-            <span aria-hidden="true">{WINDOW_META[id].icon}</span>
-            {WINDOW_META[id].label}
+            <span aria-hidden="true">{windowMeta(id).icon}</span>
+            {windowMeta(id).label}
           </button>
         ))}
       </div>
