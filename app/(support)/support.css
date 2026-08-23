@@ -341,12 +341,21 @@ footer {
   height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 12px;
   background: #fff; color: var(--ink); font-size: 15px;
 }
+/*
+ * `.go` — це посилання, а не кнопка: перехід між ролями змінює URL, і `<button>`
+ * тут означав би клік, який нічого не робить без JS. Через це правило мусить
+ * саме задати те, що кнопка має від браузера: рівень блоку, центрування вмісту
+ * й відсутність підкреслення.
+ */
 .go {
-  min-height: 46px; border: 0; border-radius: 14px; color: #fff; background: var(--v);
-  font-size: 15px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 46px; padding: 0 14px; border: 0; border-radius: 14px;
+  color: #fff; background: var(--v);
+  font-size: 15px; font-weight: 700; text-align: center; text-decoration: none;
 }
-.go:hover { background: var(--vd); }
+.go:hover { color: #fff; background: var(--vd); }
 .go.ghost { color: var(--vd); background: var(--soft); }
+.go.ghost:hover { color: var(--vd); background: #e6e0f8; }
 .hint {
   margin: 18px 0 0; padding: 12px 14px; border: 1px solid #e5dcc8; border-radius: 14px;
   background: #fffbedeb; color: #645e53; font-size: 12px; line-height: 1.45;
