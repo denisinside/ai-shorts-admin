@@ -291,7 +291,8 @@ export type QualityCriterion = { pass?: boolean } & Record<string, unknown>;
  * споживання токенів, тому в графі чесно міряється лише час.
  */
 export type ArticleMetrics = {
-  workflow_run_id?: string;
+  /** Дубль run_id: за ним ран шукається в Dify Logs, щоб узяти токени. */
+  run_id?: string;
   elapsed_ms?: number;
   llm_calls?: number;
   image_calls?: number;

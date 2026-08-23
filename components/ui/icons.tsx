@@ -71,6 +71,14 @@ export const ExternalIcon = (props: IconProps) => (
   </Icon>
 );
 
+/** Розгорнута книга — «почитати» статтю в читалці «Wait, What?». */
+export const BookIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M12 6.5C10.5 5 8.5 4.5 4 4.5v13c4.5 0 6.5.5 8 2 1.5-1.5 3.5-2 8-2v-13c-4.5 0-6.5.5-8 2Z" />
+    <path d="M12 6.5v13" />
+  </Icon>
+);
+
 export const TrendIcon = (props: IconProps) => (
   <Icon {...props}>
     <path d="m3 16 5-5 4 4 8-8" />

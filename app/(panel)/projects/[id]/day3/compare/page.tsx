@@ -176,17 +176,29 @@ export default async function CompareDay3Page({
                         className="border-b border-white/5 last:border-0"
                       >
                         <Cell>
-                          <Link
-                            href={`/projects/${id}?article=${article.id}#day-3`}
-                            className="inline-flex items-center gap-2 transition-colors hover:text-arc"
-                          >
-                            <Badge
-                              className={PIPELINE_STYLES[article.pipeline]}
+                          <span className="inline-flex items-center gap-2">
+                            <Link
+                              href={`/projects/${id}?article=${article.id}#day-3`}
+                              className="inline-flex items-center gap-2 transition-colors hover:text-arc"
                             >
-                              {article.variant ??
-                                PIPELINE_LABELS[article.pipeline]}
-                            </Badge>
-                          </Link>
+                              <Badge
+                                className={PIPELINE_STYLES[article.pipeline]}
+                              >
+                                {article.variant ??
+                                  PIPELINE_LABELS[article.pipeline]}
+                              </Badge>
+                            </Link>
+                            {/* Порівнювати цифри й читати текст — різні задачі:
+                                кожен прогін відкривається в читалці окремо */}
+                            <Link
+                              href={`/blog?article=${article.id}`}
+                              target="_blank"
+                              rel="noopener"
+                              className="text-xs text-ink-faint transition-colors hover:text-arc"
+                            >
+                              почитати
+                            </Link>
+                          </span>
                         </Cell>
                         <Cell>
                           <span className="tabular">

@@ -1,0 +1,1404 @@
+/* ===========================================================================
+   «Wait, What?» — читацька сторінка.
+
+   Стилі взяті з макета Wait-What-Homepage-2.html і лишені вручну, без Tailwind:
+   сторінка живе окремим коренем (app/(reader)) і не має ділити ні токенів, ні
+   preflight з панеллю. Тому загальні селектори (body, button) тут безпечні —
+   цей файл вантажиться лише на маршрутах читалки.
+
+   Що додано понад макет: карусель стрічки, обкладинка-заставка для статей без
+   ілюстрації, типографіка тіла статті й позначки походження картки.
+   =========================================================================== */
+
+:root {
+  --sky: #238fcd;
+  --ink: #17212a;
+  --yellow: #ffd20f;
+  --pink: #ff5fa9;
+  --glass: rgba(226, 247, 255, 0.32);
+  --line: rgba(255, 255, 255, 0.78);
+  /* Нативні контроли (поле пошуку) успадковують схему кореня, а тут світло */
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--sky);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+/* Курсори з макета: піксельна стрілка й «рука». Розмір мізерний, тому лишаємо
+   вбудованими — окремий файл дав би два зайвих запити на кожну сторінку. */
+button,
+a,
+[role="button"] {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32' shape-rendering='crispEdges'%3E%3Cpath d='M10 3h5v11l2-3h4l2 2h3l2 3v8l-4 6H12l-7-9v-5h4l2 3z' fill='%23fff' stroke='%23111' stroke-width='2' stroke-linejoin='miter'/%3E%3C/svg%3E")
+      7 2,
+    pointer;
+}
+
+body,
+input {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32' shape-rendering='crispEdges'%3E%3Cpath d='M3 2v24l6-6 5 10 5-3-5-9h9z' fill='%23fff' stroke='%23111' stroke-width='2' stroke-linejoin='miter'/%3E%3C/svg%3E")
+      1 1,
+    default;
+}
+
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+
+/* --------------------------------------------------------------- робочий стіл */
+.desktop-shell {
+  min-height: 100svh;
+  /* `auto`, а не `hidden`: вікна розставлені абсолютно під композицію макета, і
+     на низькому екрані (1440×700) стрічка інакше опинялася під таскбаром без
+     жодного способу до неї дістатися. Смуга з'являється лише коли справді не
+     влазить — див. min-height у .desktop-area. */
+  overflow: auto;
+  position: relative;
+  background-image: linear-gradient(
+      rgba(15, 113, 171, 0.04),
+      rgba(15, 113, 171, 0.04)
+    ),
+    url("/waitwhat/wallpaper.webp");
+  background-size: cover;
+  background-position: center;
+  isolation: isolate;
+}
+
+.desktop-shell::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.08),
+    transparent 35%,
+    rgba(24, 81, 27, 0.08)
+  );
+  z-index: -1;
+}
+
+.glass-panel,
+.app-window {
+  border: 1px solid var(--line);
+  background: var(--glass);
+  box-shadow:
+    0 18px 55px rgba(12, 65, 88, 0.2),
+    inset 0 1px rgba(255, 255, 255, 0.34);
+  backdrop-filter: blur(16px) saturate(125%);
+  -webkit-backdrop-filter: blur(16px) saturate(125%);
+}
+
+.skip-link {
+  position: fixed;
+  left: 16px;
+  top: -80px;
+  z-index: 100;
+  padding: 10px 16px;
+  background: #fff;
+  color: #111;
+  border-radius: 8px;
+}
+
+.skip-link:focus {
+  top: 16px;
+}
+
+/* ------------------------------------------------------------------- топбар */
+.topbar {
+  position: fixed;
+  z-index: 30;
+  top: 24px;
+  left: 2.25%;
+  right: 2.25%;
+  height: 82px;
+  border-radius: 22px;
+  display: grid;
+  grid-template-columns: auto 1fr minmax(220px, 340px);
+  align-items: center;
+  gap: 40px;
+  padding: 0 24px;
+  color: #fff;
+}
+
+.brand {
+  border: 0;
+  background: none;
+  color: #fff;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(25px, 2.1vw, 36px);
+  letter-spacing: -0.04em;
+  white-space: nowrap;
+}
+
+.brand span {
+  color: var(--yellow);
+  font-family: Arial, sans-serif;
+}
+
+.topbar nav {
+  display: flex;
+  gap: clamp(16px, 3vw, 46px);
+}
+
+.topbar nav button {
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.topbar nav button:hover {
+  color: var(--yellow);
+  transform: translateY(-1px);
+}
+
+/* Активний фасет має бути видно: інакше «Чернетки» виглядають як порожня
+   стрічка без причини. */
+.topbar nav button[aria-pressed="true"] {
+  color: var(--yellow);
+  box-shadow: inset 0 -2px var(--yellow);
+}
+
+.search-box {
+  height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  background: rgba(75, 154, 201, 0.18);
+}
+
+.search-box span {
+  font-size: 27px;
+  transform: rotate(-20deg);
+}
+
+.search-box input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #fff;
+}
+
+.search-box input::placeholder {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* ------------------------------------------------------------------- вікна */
+.desktop-area {
+  /* 880px — низ стрічки (568 + голова + картки + точки) плюс місце під таскбар.
+     Абсолютні вікна не розтягують контейнер, тому висоту треба задати прямо:
+     без неї на короткому екрані не було б чого скролити. */
+  min-height: max(100svh, 880px);
+  position: relative;
+  padding-top: 132px;
+  padding-bottom: 118px;
+}
+
+.app-window {
+  overflow: hidden;
+  border-radius: 18px;
+}
+
+.titlebar {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 18px;
+  color: #fff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.42);
+  background: rgba(44, 139, 193, 0.21);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.titlebar > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.drag-handle {
+  touch-action: none;
+  user-select: none;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32' shape-rendering='crispEdges'%3E%3Cpath d='M10 3h5v11l2-3h4l2 2h3l2 3v8l-4 6H12l-7-9v-5h4l2 3z' fill='%23fff' stroke='%23111' stroke-width='2' stroke-linejoin='miter'/%3E%3C/svg%3E")
+      7 2,
+    move;
+}
+
+.window-controls {
+  display: flex;
+  align-self: stretch;
+}
+
+.window-controls button {
+  width: 38px;
+  border: 0;
+  color: #fff;
+  background: transparent;
+  font-size: 21px;
+  line-height: 1;
+}
+
+.window-controls button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.window-controls button:last-child:hover {
+  background: #ee5b66;
+}
+
+/* --------------------------------------------------------------------- герой */
+.hero-window {
+  position: absolute;
+  z-index: 5;
+  left: 7.5%;
+  top: 132px;
+  width: 48%;
+  max-width: 760px;
+}
+
+.hero-content {
+  min-height: 370px;
+  padding: 42px 56px 34px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.97),
+    rgba(249, 249, 242, 0.78)
+  );
+  position: relative;
+}
+
+.hero-content::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 92px;
+  background: linear-gradient(0deg, rgba(159, 194, 116, 0.35), transparent);
+  pointer-events: none;
+}
+
+.hero-content > * {
+  position: relative;
+  z-index: 1;
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #6b6b62;
+}
+
+.hero-content h1 {
+  max-width: 620px;
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  font-size: clamp(40px, 4.2vw, 70px);
+  line-height: 0.91;
+  letter-spacing: -0.055em;
+}
+
+.hero-content > p:not(.eyebrow) {
+  max-width: 470px;
+  margin: 18px 0 24px;
+  font-size: clamp(15px, 1.25vw, 19px);
+  line-height: 1.45;
+}
+
+.hero-sparkles {
+  position: absolute;
+  z-index: 2;
+  right: 32px;
+  top: 24px;
+  color: var(--yellow);
+  font-size: 62px;
+  filter: drop-shadow(0 4px 0 rgba(222, 155, 0, 0.16));
+}
+
+.hero-sparkles span {
+  font-size: 35px;
+  margin-left: -8px;
+}
+
+.primary-button {
+  border: 0;
+  border-radius: 999px;
+  padding: 13px 24px;
+  background: var(--yellow);
+  color: #211b00;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  box-shadow:
+    inset 0 1px #fff4a7,
+    0 8px 20px rgba(187, 128, 0, 0.18);
+}
+
+.primary-button:hover {
+  transform: translateY(-2px);
+  background: #ffe039;
+}
+
+/* ------------------------------------------------------------------ waitbot */
+.bot-window {
+  position: absolute;
+  z-index: 7;
+  right: 15.2%;
+  top: 181px;
+  width: min(395px, 29%);
+}
+
+.bot-content {
+  padding: 18px;
+  background: linear-gradient(
+    180deg,
+    rgba(137, 209, 242, 0.43),
+    rgba(242, 243, 221, 0.62)
+  );
+}
+
+.waitbot-avatar {
+  display: block;
+  width: 205px;
+  height: 120px;
+  margin: -2px auto -10px;
+  object-fit: cover;
+  object-position: center;
+  border-radius: 80px;
+  filter: saturate(1.12) drop-shadow(0 0 18px rgba(255, 222, 49, 0.65));
+}
+
+.bot-greeting {
+  position: relative;
+  padding: 14px 18px;
+  margin: 0 auto 10px;
+  max-width: 310px;
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.88);
+  line-height: 1.35;
+  box-shadow: 0 7px 18px rgba(37, 80, 92, 0.1);
+}
+
+.chat-log {
+  display: grid;
+  gap: 6px;
+  max-height: 88px;
+  overflow: auto;
+  margin-bottom: 9px;
+}
+
+.chat-message {
+  margin: 0;
+  padding: 8px 11px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.chat-message.user {
+  justify-self: end;
+  max-width: 80%;
+  background: #fff4ba;
+}
+
+.chat-message.bot {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.bot-form {
+  display: flex;
+  height: 44px;
+  padding: 3px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.bot-form input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  padding: 0 10px;
+  background: transparent;
+  font-size: 12px;
+}
+
+.bot-form button {
+  flex: 0 0 36px;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--yellow);
+  font-size: 24px;
+}
+
+.try-label {
+  margin: 12px 0 7px;
+  color: #fff;
+  font-size: 11px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.suggestion-row {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.suggestion-row button {
+  white-space: nowrap;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 18px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--pink);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+/* ------------------------------------------------------------------ ярлики */
+.desktop-shortcuts {
+  position: absolute;
+  z-index: 3;
+  right: 3.6%;
+  top: 138px;
+  display: grid;
+  gap: 26px;
+}
+
+.desktop-shortcut {
+  width: 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  color: #fff;
+  background: none;
+  text-shadow: 0 1px 3px rgba(0, 45, 75, 0.75);
+}
+
+.desktop-shortcut:hover {
+  transform: translateY(-4px) scale(1.04);
+  filter: brightness(1.08);
+}
+
+.shortcut-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 10px;
+  font-size: 28px;
+  color: #fff;
+  background: linear-gradient(145deg, #ffd85a, #d4ad21);
+  box-shadow:
+    inset 0 2px rgba(255, 255, 255, 0.65),
+    0 8px 14px rgba(10, 78, 107, 0.18);
+  text-shadow: none;
+}
+
+.shortcut-saved {
+  background: linear-gradient(145deg, #ff95c6, #df4c96);
+}
+
+.shortcut-trending {
+  background: linear-gradient(145deg, #66bbff, #2584d8);
+}
+
+.shortcut-glossary {
+  background: linear-gradient(145deg, #b790ed, #7453b7);
+}
+
+.desktop-shortcut strong {
+  margin-top: 3px;
+  font-size: 12px;
+}
+
+.desktop-shortcut small {
+  font-size: 10px;
+  opacity: 0.9;
+}
+
+.desktop-shortcut[aria-pressed="true"] .shortcut-icon {
+  outline: 2px solid var(--yellow);
+  outline-offset: 2px;
+}
+
+/* ================================================================= КАРУСЕЛЬ
+   У макеті стрічка була сіткою на чотири фіксовані картки. Статей у базі
+   буває і більше, і менше, тому сітка стала доріжкою зі scroll-snap: браузер
+   сам тримає крок, а кнопки лише зсувають на видиму ширину. Активна сторінка
+   рахується з фактичного scrollLeft — інакше вона розходилася б зі скролом
+   від тачпада, який кнопок не питає.
+   ========================================================================= */
+.article-strip {
+  position: absolute;
+  z-index: 9;
+  left: 7.6%;
+  right: 39.9%;
+  /* Рівно як у макеті. Не «розумний» min() від висоти екрана: там стрічка
+     наїжджала на вікно героя (z-index 9 проти 5) і закривала йому низ. Коли
+     не влазить — скролиться шар вище, а композиція лишається цілою. */
+  top: 568px;
+  display: grid;
+  gap: 8px;
+  scroll-margin-top: 130px;
+}
+
+.strip-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #fff;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 3px rgba(0, 45, 75, 0.6);
+}
+
+.strip-head p {
+  margin: 0;
+}
+
+.strip-head b {
+  color: var(--yellow);
+}
+
+.strip-nav {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.strip-nav button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(75, 154, 201, 0.32);
+  font-size: 17px;
+  line-height: 1;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.strip-nav button:hover:not(:disabled) {
+  background: var(--yellow);
+  color: #211b00;
+}
+
+.strip-nav button:disabled {
+  opacity: 0.38;
+}
+
+.strip-track {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  /* Тінь картки на ховері не має обрізатися доріжкою */
+  padding: 6px 2px 10px;
+  margin: -6px -2px -10px;
+  scrollbar-width: none;
+}
+
+.strip-track::-webkit-scrollbar {
+  display: none;
+}
+
+.strip-track > * {
+  /* Чотири картки у видимій частині — рівно як у сітці макета */
+  flex: 0 0 calc((100% - 42px) / 4);
+  scroll-snap-align: start;
+}
+
+.article-card {
+  min-width: 0;
+  border-radius: 14px;
+  background: rgba(247, 248, 241, 0.95);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.article-card:hover {
+  transform: translateY(-7px);
+  box-shadow: 0 20px 34px rgba(19, 71, 78, 0.32);
+}
+
+.article-titlebar {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 10px;
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--article-accent);
+  text-transform: uppercase;
+}
+
+.article-titlebar > span:nth-child(2) {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mini-folder {
+  color: var(--article-accent);
+  font-size: 20px;
+  transform: rotate(90deg);
+  flex: none;
+}
+
+.mini-controls {
+  display: flex;
+  margin-left: auto;
+  align-self: stretch;
+}
+
+.mini-controls button {
+  width: 28px;
+  border: 0;
+  background: none;
+  color: #52606a;
+  font-size: 17px;
+}
+
+.mini-controls button:hover {
+  background: #ecefe8;
+}
+
+.article-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  text-align: left;
+}
+
+.article-open img {
+  display: block;
+  width: calc(100% - 10px);
+  height: 132px;
+  margin: 0 5px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: #cfe8ed;
+}
+
+/* Обкладинки в базі поки немає майже ніде (thumbnail_url приходить порожнім),
+   тому замість битої рамки малюємо заставку в акценті картки. Це не «немає
+   картинки», а свідома типографічна обкладинка. */
+.cover-blank {
+  display: grid;
+  place-items: center;
+  width: calc(100% - 10px);
+  height: 132px;
+  margin: 0 5px;
+  border-radius: 10px;
+  background:
+    radial-gradient(
+      120% 100% at 15% 0%,
+      color-mix(in srgb, var(--article-accent) 42%, #fff) 0%,
+      transparent 60%
+    ),
+    linear-gradient(
+      140deg,
+      color-mix(in srgb, var(--article-accent) 82%, #123) 0%,
+      color-mix(in srgb, var(--article-accent) 32%, #0d2a3a) 100%
+    );
+  color: #fff;
+  font-family: Georgia, serif;
+  font-size: 34px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
+}
+
+.article-copy {
+  min-height: 84px;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+}
+
+.article-copy strong {
+  font-size: clamp(11px, 0.9vw, 15px);
+  line-height: 1.13;
+  text-transform: uppercase;
+  /* Заголовки статей із бази бувають довгими — три рядки, далі трикрапка */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.article-copy small {
+  margin-top: auto;
+  padding-top: 8px;
+  color: #4c555b;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Позначка походження. Демо-картка й чернетка мусять бути видимо іншими:
+   інакше макетний текст читається як опублікований матеріал. */
+.card-flag {
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-weight: 800;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.card-flag--demo {
+  background: #ece4ff;
+  color: #5b3ba8;
+}
+
+.card-flag--draft {
+  background: #fff0bf;
+  color: #6f5200;
+}
+
+.strip-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.strip-dots button {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.strip-dots button[aria-current="true"] {
+  width: 20px;
+  border-radius: 999px;
+  background: var(--yellow);
+}
+
+/* Порожній стан — теж дитина доріжки, тому без цього правила він отримав би
+   ширину картки (25%) і повідомлення не влізло б у рядок. */
+.strip-track > .empty-window {
+  flex: 1 1 100%;
+  scroll-snap-align: none;
+}
+
+.empty-window {
+  padding: 22px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+  font-weight: 700;
+  text-align: left;
+}
+
+/* ----------------------------------------------------------------- таскбар */
+.taskbar {
+  position: fixed;
+  z-index: 40;
+  left: 2.3%;
+  right: 2.3%;
+  bottom: 14px;
+  height: 68px;
+  border-radius: 22px;
+  display: flex;
+  align-items: center;
+  padding: 6px 18px 6px 88px;
+  color: #fff;
+}
+
+.start-button {
+  position: absolute;
+  left: -1px;
+  bottom: -2px;
+  width: 76px;
+  height: 76px;
+  border: 1px solid #fff;
+  border-radius: 50%;
+  color: var(--yellow);
+  background: rgba(84, 124, 93, 0.62);
+  font-size: 43px;
+  text-shadow: 0 3px #b78100;
+  box-shadow:
+    0 12px 28px rgba(0, 65, 74, 0.27),
+    inset 0 2px rgba(255, 255, 255, 0.65);
+}
+
+.start-button:hover {
+  transform: scale(1.06) rotate(8deg);
+}
+
+.task-apps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-apps button {
+  height: 51px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0 12px;
+  color: #fff;
+  background: transparent;
+}
+
+.task-apps button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.task-apps button[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.task-apps span {
+  font-size: 28px;
+}
+
+.system-tray {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 18px;
+}
+
+.system-tray time {
+  min-width: 72px;
+  text-align: right;
+  font-size: 13px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.system-tray small {
+  font-size: 11px;
+}
+
+/* ============================================================ ВІКНО СТАТТІ
+   Тут показується структура з day3-article-contract: H1 → обкладинка → вступ,
+   далі розділи (H2 → текст → джерела → ілюстрація), далі висновок і CTA.
+   Порядок «ілюстрація в кінці розділу» — правило верстки, у даних його немає.
+   ========================================================================= */
+.modal-backdrop {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(5, 41, 56, 0.42);
+  backdrop-filter: blur(8px);
+}
+
+.article-modal {
+  width: min(820px, 96vw);
+  max-height: 88vh;
+  overflow: auto;
+  background: rgba(249, 249, 242, 0.96);
+  overscroll-behavior: contain;
+}
+
+.article-modal > .titlebar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* Липкий титульний рядок мусить бути щільним: під ним їде текст */
+  background: rgba(31, 118, 167, 0.92);
+  backdrop-filter: blur(10px);
+}
+
+.article-modal > img {
+  width: 100%;
+  height: 300px;
+  object-fit: cover;
+  display: block;
+}
+
+.article-modal > .cover-blank {
+  width: 100%;
+  height: 240px;
+  margin: 0;
+  border-radius: 0;
+  font-size: 64px;
+}
+
+.modal-copy {
+  padding: 26px 32px 34px;
+}
+
+.modal-copy h2 {
+  max-width: 660px;
+  margin: 0;
+  font-family: Georgia, serif;
+  font-size: clamp(30px, 4vw, 52px);
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: -0.04em;
+}
+
+.modal-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+}
+
+/* Повідомлення про походження рядка. Чернетка — це не помилка, але читач
+   мусить знати, що рішення по ній ще не ухвалене. */
+.article-note {
+  margin: 18px 0 0;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.article-note--draft {
+  background: #fff5cf;
+  color: #5c4400;
+  box-shadow: inset 0 0 0 1px rgba(180, 130, 0, 0.28);
+}
+
+.article-note--demo {
+  background: #efe8ff;
+  color: #4a2f8f;
+  box-shadow: inset 0 0 0 1px rgba(107, 70, 193, 0.24);
+}
+
+.article-body {
+  max-width: 660px;
+  margin-top: 20px;
+}
+
+.article-body > section {
+  margin-top: 34px;
+  padding-top: 26px;
+  border-top: 1px solid rgba(23, 33, 42, 0.12);
+}
+
+.article-body h3 {
+  margin: 0 0 14px;
+  font-family: Georgia, serif;
+  font-weight: 400;
+  font-size: clamp(23px, 2.4vw, 31px);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+}
+
+.article-figure {
+  margin: 22px 0 0;
+}
+
+.article-figure img {
+  display: block;
+  width: 100%;
+  border-radius: 12px;
+  background: #cfe8ed;
+}
+
+.article-figure figcaption {
+  margin-top: 8px;
+  color: #5a666e;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.article-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.article-sources a {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: rgba(35, 143, 205, 0.12);
+  color: #14638f;
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.article-sources a:hover {
+  background: rgba(35, 143, 205, 0.24);
+}
+
+.article-cta {
+  margin: 22px 0 0;
+  padding: 16px 20px;
+  border-radius: 14px;
+  background: #fff3b5;
+  box-shadow: inset 0 0 0 1px rgba(180, 130, 0, 0.24);
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.article-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 30px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(23, 33, 42, 0.12);
+}
+
+.save-button {
+  border: 1px solid #1d2a31;
+  border-radius: 999px;
+  padding: 10px 18px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.save-button.saved {
+  border-color: #d89600;
+  color: #7a5500;
+  background: #fff3b5;
+}
+
+.panel-link {
+  color: #14638f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ------------------------------------------------- markdown у тілі статті */
+.ww-md {
+  color: #2b3640;
+  font-size: 16px;
+  line-height: 1.68;
+}
+
+.ww-md > * {
+  margin: 0 0 15px;
+}
+
+.ww-md > *:last-child {
+  margin-bottom: 0;
+}
+
+.ww-md__h {
+  margin: 26px 0 12px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.ww-md a {
+  color: #14638f;
+  text-decoration: underline;
+  text-decoration-color: rgba(20, 99, 143, 0.4);
+  text-underline-offset: 2px;
+}
+
+.ww-md strong {
+  color: var(--ink);
+}
+
+.ww-md code {
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: rgba(23, 33, 42, 0.08);
+  font-size: 14px;
+}
+
+.ww-md ul,
+.ww-md ol {
+  padding: 0;
+  list-style: none;
+}
+
+.ww-md li {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 7px;
+}
+
+.ww-md__dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-top: 9px;
+  border-radius: 50%;
+  background: var(--pink);
+}
+
+.ww-md__num {
+  flex: none;
+  color: #7b868d;
+  font-variant-numeric: tabular-nums;
+}
+
+.ww-md blockquote {
+  padding-left: 14px;
+  border-left: 3px solid rgba(255, 95, 169, 0.5);
+  font-style: italic;
+}
+
+/* -------------------------------------------------------------------- тост */
+.toast {
+  position: fixed;
+  z-index: 120;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  padding: 12px 18px;
+  border: 1px solid #fff;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(22, 51, 61, 0.82);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.is-hidden {
+  display: none !important;
+}
+
+/* --------------------------------------------------------------- адаптація */
+@media (max-width: 1180px) {
+  .topbar {
+    gap: 20px;
+    grid-template-columns: auto 1fr 230px;
+  }
+  .topbar nav {
+    gap: 14px;
+  }
+  .hero-window {
+    width: 52%;
+    left: 4%;
+  }
+  .bot-window {
+    right: 13%;
+    width: 32%;
+  }
+  .article-strip {
+    left: 4%;
+    right: 37%;
+  }
+  .strip-track > * {
+    flex: 0 0 calc((100% - 28px) / 3);
+  }
+  .desktop-shortcuts {
+    right: 2%;
+  }
+}
+
+@media (max-width: 899px) {
+  .desktop-shell {
+    overflow: auto;
+    background-attachment: fixed;
+  }
+  .topbar {
+    position: relative;
+    top: 12px;
+    left: 3%;
+    right: auto;
+    width: 94%;
+    height: auto;
+    min-height: 72px;
+    grid-template-columns: 1fr auto;
+    padding: 14px 18px;
+  }
+  .topbar nav {
+    display: none;
+  }
+  .search-box {
+    width: min(44vw, 280px);
+  }
+  .desktop-area {
+    min-height: auto;
+    padding: 38px 4% 120px;
+    display: grid;
+    gap: 18px;
+  }
+  .hero-window,
+  .bot-window,
+  .article-strip,
+  .desktop-shortcuts {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    max-width: none;
+    transform: none !important;
+  }
+  .hero-content {
+    min-height: 340px;
+    padding: 40px 28px 30px;
+  }
+  .hero-content h1 {
+    font-size: clamp(42px, 9vw, 68px);
+  }
+  .bot-window {
+    max-width: 560px;
+    justify-self: end;
+  }
+  .desktop-shortcuts {
+    order: 3;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .desktop-shortcut {
+    width: auto;
+  }
+  .article-strip {
+    order: 2;
+  }
+  .strip-track > * {
+    flex: 0 0 calc((100% - 14px) / 2);
+  }
+  .article-open img,
+  .article-card .cover-blank {
+    height: 190px;
+  }
+  .taskbar {
+    left: 3%;
+    right: 3%;
+    overflow: visible;
+    padding-left: 74px;
+  }
+  .task-apps button {
+    font-size: 0;
+    padding: 0 8px;
+  }
+  .task-apps span {
+    font-size: 26px;
+  }
+  .system-tray span {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .brand {
+    font-size: 24px;
+  }
+  .topbar {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .search-box {
+    width: 100%;
+  }
+  .desktop-area {
+    padding-top: 30px;
+  }
+  .hero-content {
+    min-height: 325px;
+    padding: 34px 22px 24px;
+  }
+  .hero-content h1 {
+    font-size: 42px;
+  }
+  .hero-sparkles {
+    font-size: 40px;
+    right: 15px;
+  }
+  .strip-track > * {
+    flex: 0 0 100%;
+  }
+  .article-open img,
+  .article-card .cover-blank {
+    height: 210px;
+  }
+  .desktop-shortcuts {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .taskbar {
+    height: 62px;
+    padding-left: 64px;
+    padding-right: 10px;
+  }
+  .start-button {
+    width: 66px;
+    height: 66px;
+    font-size: 36px;
+  }
+  .task-apps {
+    gap: 1px;
+  }
+  .task-apps button:nth-child(4),
+  .task-apps button:nth-child(5) {
+    display: none;
+  }
+  .system-tray {
+    gap: 5px;
+  }
+  .system-tray time {
+    min-width: 64px;
+  }
+  .article-modal > img {
+    height: 220px;
+  }
+  .modal-copy {
+    padding: 22px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}

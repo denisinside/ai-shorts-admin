@@ -163,7 +163,7 @@ export default function Day3Form({
         name="tokens_total"
         inputMode="numeric"
         defaultValue={state.values?.tokens_total ?? tokensDefault}
-        hint="З Dify Logs: воркфлоу не бачить власного споживання токенів. Вливається в metrics.tokens_total"
+        hint="З Dify Logs (шукай ран за run_id): воркфлоу не бачить власного споживання токенів. Вливається в metrics.tokens_total"
         className="field-mono"
       />
 

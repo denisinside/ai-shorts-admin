@@ -44,6 +44,7 @@ import { ConfirmAction } from "@/components/ui/ConfirmAction";
 import { PageHeader } from "@/components/ui/PageHeader";
 import {
   AssetIcon,
+  BookIcon,
   CheckIcon,
   CloseIcon,
   ExternalIcon,
@@ -538,6 +539,20 @@ export default async function ProjectDetailPage({
             title="Стаття"
             actions={
               <>
+                {/* Читалка живе окремим кореневим layout, тому перехід туди —
+                    повне перезавантаження. Нова вкладка лишає панель на місці:
+                    статтю читають, а рішення по ній ухвалюють тут. */}
+                {article && (
+                  <LinkButton
+                    href={`/blog?article=${article.id}`}
+                    target="_blank"
+                    rel="noopener"
+                    size="sm"
+                  >
+                    <BookIcon className="h-4 w-4" />
+                    Почитати
+                  </LinkButton>
+                )}
                 {day3.length > 1 && (
                   <LinkButton
                     href={`/projects/${id}/day3/compare`}

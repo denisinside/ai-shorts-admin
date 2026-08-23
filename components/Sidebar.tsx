@@ -4,11 +4,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/ui";
-import { LayersIcon, PlusIcon } from "./ui/icons";
+import { BookIcon, LayersIcon, PlusIcon } from "./ui/icons";
 
 const NAV = [
   { href: "/", label: "Проєкти", icon: LayersIcon, exact: true },
   { href: "/projects/new", label: "Новий проєкт", icon: PlusIcon, exact: false },
+  // Читалка живе окремим кореневим layout, тому це посилання дає повне
+  // перезавантаження, а не клієнтський перехід. Без пункту в меню сторінка
+  // була б доступна лише глибоким посиланням з картки статті.
+  { href: "/blog", label: "Блог", icon: BookIcon, exact: false },
 ] as const;
 
 function useActiveHref() {
