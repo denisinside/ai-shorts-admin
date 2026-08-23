@@ -31,6 +31,8 @@ import {
 import Pipeline, { type PipelineStep } from "@/components/Pipeline";
 import PlanDetails from "@/components/PlanDetails";
 import ArticleView from "@/components/ArticleView";
+import ArticleSeoPanel from "@/components/ArticleSeoPanel";
+import RagStatus from "@/components/RagStatus";
 import {
   ArticleMetricsRow,
   Day3Versions,
@@ -603,6 +605,13 @@ export default async function ProjectDetailPage({
                     </Badge>
                   )}
                 </div>
+
+                {/* Заземлення стоїть ПЕРЕД SEO і перед текстом: воно
+                    пояснює, чому рубрика виглядає саме так, а не є ще одним
+                    її пунктом */}
+                <RagStatus article={article} />
+
+                <ArticleSeoPanel article={article} />
 
                 <ArticleView article={article} />
 

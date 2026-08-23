@@ -2,11 +2,12 @@ import Link from "next/link";
 import { cn } from "@/lib/ui";
 import {
   formatElapsed,
+  qualityCriteria,
   qualityScore,
   toMetrics,
-  toSeo,
   type Day3Article,
 } from "@/lib/day-tables";
+import { PassMark } from "./ArticleSeoPanel";
 import { Badge } from "./ui/Badge";
 import { WarningIcon } from "./ui/icons";
 
@@ -69,8 +70,8 @@ export function Day3Versions({
 export function ArticleMetricsRow({ article }: { article: Day3Article }) {
   const metrics = toMetrics(article.metrics);
   const score = qualityScore(metrics);
+  const criteria = qualityCriteria(metrics);
   const elapsed = formatElapsed(metrics?.elapsed_ms);
-  const seo = toSeo(article.seo);
 
   return (
     <div className="space-y-2.5">
@@ -103,6 +104,36 @@ export function ArticleMetricsRow({ article }: { article: Day3Article }) {
         )}
       </div>
 
+      {/* Агрегат «N/M» каже, скільки критеріїв упало, але не який саме — а
+          рішення ухвалюється саме по цьому: провалений «Ланцюг джерел» і
+          провалена «Глибина SEO» означають різні дії */}
+      {criteria.length > 0 && (
+        <ul className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+          {criteria.map((criterion) => (
+            <li
+              key={criterion.key}
+              className="flex flex-wrap items-baseline gap-x-2 text-xs"
+            >
+              <span className="flex items-center self-center">
+                <PassMark pass={criterion.pass} />
+              </span>
+              <span
+                className={
+                  criterion.pass === false ? "text-warn" : "text-ink-muted"
+                }
+              >
+                {criterion.label}
+              </span>
+              {criterion.detail && (
+                <span className="tabular text-ink-faint">
+                  {criterion.detail}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
       {/* Стаття вийшла без частини ілюстрацій — це видно в самому тексті,
           тому сказати треба тут, а не лише в review_reason */}
       {typeof metrics?.images_lost === "number" && metrics.images_lost > 0 && (
@@ -111,21 +142,6 @@ export function ArticleMetricsRow({ article }: { article: Day3Article }) {
           Ілюстрацій не вийшло: {metrics.images_lost} — ці блоки лишилися без
           картинки
         </p>
-      )}
-
-      {seo?.meta_description && (
-        <div className="rounded-xl bg-white/4 p-3 ring-1 ring-inset ring-white/8">
-          <p className="text-sm font-medium text-ink">
-            {seo.seo_title ?? article.title}
-          </p>
-          <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-            {seo.meta_description}
-          </p>
-          <p className="tabular mt-1.5 text-xs text-ink-faint">
-            {seo.slug ? `/${seo.slug}` : "slug не заданий"} ·{" "}
-            {seo.meta_description.length} символів
-          </p>
-        </div>
       )}
     </div>
   );

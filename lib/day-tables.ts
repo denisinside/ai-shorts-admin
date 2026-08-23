@@ -273,6 +273,13 @@ export type ArticleSection = {
   plan_index?: number;
 };
 
+/**
+ * Мета-поля статті. Усі шість пише окремий SEO-агент останнім проходом, уже по
+ * готовому тексту: og-поля й ключові слова описують СТАТТЮ, а не план, тому
+ * раніше їх не існувало. `og_title` і `og_description` мусять відрізнятися від
+ * `seo_title` і `meta_description` — однаковий рядок у трьох полях і є найчастіша
+ * помилка проходу, і рубрика `seo_depth` міряє саме це.
+ */
 export type ArticleSeo = {
   seo_title?: string;
   meta_description?: string;
@@ -304,7 +311,36 @@ export type ArticleMetrics = {
   images_stored?: number;
   images_lost?: number;
   tokens_total?: number | null;
+  /**
+   * Рубрика якості. Значення — або критерій обʼєктом, або число (`score` і
+   * `score_total`), тому ключі розбирають хелпери, а не звернення напряму.
+   */
   quality?: Record<string, QualityCriterion | number>;
+  /**
+   * Чим заземлювався прогін. jsonb приходить непередбачувано, тому `unknown`
+   * і `toRag` — як і решта полів із пайплайну.
+   */
+  rag?: unknown;
+  /** Внутрішні посилання: скільки вставлено зі скількох кандидатів у базі. */
+  internal_links?: { applied?: number; candidates?: number };
+};
+
+/**
+ * Заземлення прогону на редакційний стандарт видавця (Pinecone, namespace
+ * `editorial`). `enabled: true` з `chunks: 0` — це НЕ те саме, що прогін без
+ * заземлення: перше означає, що стандарт питали й нічого не приїхало, і
+ * списувати таку статтю на модель було б неправдою.
+ */
+export type ArticleRag = {
+  enabled?: boolean;
+  chunks?: number;
+  /** id чанків `kb/…` — по них видно, які саме правила доїхали до статті. */
+  sources?: string[];
+  top_score?: number;
+  min_score?: number;
+  /** Теми стандарту, чий запит не повернув 2xx: voice | struct | head | seo. */
+  failed?: string[];
+  namespace?: string;
 };
 
 /**
@@ -367,6 +403,211 @@ export function toMetrics(value: unknown): ArticleMetrics | null {
   return parsed as ArticleMetrics;
 }
 
+export function toRag(metrics: unknown): ArticleRag | null {
+  const parsed = parseMaybeJson(metrics);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const rag = parseMaybeJson((parsed as { rag?: unknown }).rag);
+  if (!rag || typeof rag !== "object" || Array.isArray(rag)) {
+    return null;
+  }
+  return rag as ArticleRag;
+}
+
+/**
+ * Критерії рубрики без чисел-агрегатів. Обʼєкт — це критерій, число — `score`
+ * або `score_total`; іншого в `quality` не буває, тому фільтр саме такий.
+ */
+function qualityEntries(
+  metrics: ArticleMetrics | null,
+): [string, QualityCriterion][] {
+  const quality = metrics?.quality;
+  if (!quality) return [];
+  return Object.entries(quality).filter(
+    ([, value]) => value !== null && typeof value === "object",
+  ) as [string, QualityCriterion][];
+}
+
+/**
+ * Підписи критеріїв. Ключ, якого тут немає, показується як є: рубрика вже
+ * росла двічі, і незнайомий критерій має зʼявитися в панелі сам, а не чекати
+ * на деплой.
+ */
+const QUALITY_LABELS: Record<string, string> = {
+  plan_coverage: "Покриття плану",
+  source_integrity: "Ланцюг джерел",
+  text_budget: "Бюджет тексту",
+  seo_hygiene: "SEO-гігієна",
+  coherence: "Звʼязність",
+  style_compliance: "Редакційний стандарт",
+  seo_depth: "Глибина SEO",
+};
+
+/**
+ * Один критерій рубрики за іменем. Потрібен там, де показуються ЙОГО числа, а
+ * не оцінка: секція SEO малює `seo_hygiene`, `seo_depth` і `style_compliance`
+ * поіменно, і лазити в `quality` руками означало б повторити перевірки типів
+ * у компоненті.
+ */
+export function qualityCriterion(
+  metrics: ArticleMetrics | null,
+  key: string,
+): QualityCriterion | null {
+  const value = metrics?.quality?.[key];
+  return value !== null && typeof value === "object" ? value : null;
+}
+
+/** Поля критерію приходять із jsonb, тому читаються з перевіркою типу. */
+export function criterionNumber(
+  criterion: QualityCriterion,
+  field: string,
+): number | null {
+  const value = criterion[field];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function criterionFlag(
+  criterion: QualityCriterion,
+  field: string,
+): boolean | null {
+  const value = criterion[field];
+  return typeof value === "boolean" ? value : null;
+}
+
+/** 0.85 -> «85%»: частки рубрики читати у відсотках легше, ніж у нулях з комою. */
+function asPercent(value: number | null): string | null {
+  return value == null ? null : `${Math.round(value * 100)}%`;
+}
+
+function asMark(value: boolean | null): string {
+  return value == null ? "—" : value ? "✓" : "✗";
+}
+
+function pair(label: string, value: string | number | null): string | null {
+  return value == null ? null : `${label} ${value}`;
+}
+
+/**
+ * Найважливіші числа критерію одним рядком. Це не повний дамп: поіменний
+ * розбір SEO і редакційного стандарту живе в `ArticleSeoPanel`, а тут людині
+ * треба зрозуміти, ЧОМУ критерій не зайшов, не розгортаючи JSON.
+ */
+function criterionDetail(key: string, criterion: QualityCriterion): string {
+  const num = (field: string) => criterionNumber(criterion, field);
+  const flag = (field: string) => criterionFlag(criterion, field);
+  const parts: Array<string | null> = [];
+
+  switch (key) {
+    case "plan_coverage":
+      parts.push(
+        pair("розділи", asPercent(num("sections"))),
+        pair("тези", asPercent(num("key_points"))),
+      );
+      break;
+    case "source_integrity":
+      parts.push(
+        pair("чужих URL", num("foreign_urls")),
+        pair("із джерелом", asPercent(num("grounded_claims"))),
+      );
+      break;
+    case "text_budget":
+      parts.push(
+        pair("відхилення", asPercent(num("article_delta"))),
+        pair("найгірший розділ", asPercent(num("worst_section_delta"))),
+      );
+      break;
+    case "seo_hygiene":
+      parts.push(
+        `H1 ${asMark(flag("h1"))}`,
+        `перший абзац ${asMark(flag("first_para"))}`,
+        pair("H2", num("h2_count")),
+        pair("мета", num("meta_len")),
+        `slug ${asMark(flag("slug_ok"))}`,
+      );
+      break;
+    case "coherence":
+      parts.push(
+        pair("перетин", asPercent(num("max_overlap"))),
+        pair("зауважень", num("global_issues")),
+      );
+      break;
+    case "style_compliance": {
+      // Порушення підсумовані навмисно: поіменний розбір стоїть у секції SEO,
+      // а тут потрібне одне число «є чи немає».
+      const counts = [
+        num("intensifiers"),
+        num("formal_address"),
+        num("colon_headings"),
+        num("bullet_colon"),
+        num("banned_opener"),
+      ].filter((value): value is number => value != null);
+      const sections = num("sections_total");
+      const takeaways = num("takeaway_lines");
+      parts.push(
+        counts.length
+          ? pair(
+              "порушень",
+              counts.reduce((sum, value) => sum + value, 0),
+            )
+          : null,
+        sections != null && takeaways != null
+          ? `виносів ${takeaways}/${sections}`
+          : null,
+        pair("списків у розділі", num("lists_worst_section")),
+      );
+      break;
+    }
+    case "seo_depth": {
+      const links = num("internal_links");
+      const candidates = num("link_candidates");
+      const alt = num("alt_covered");
+      const images = num("images_total");
+      parts.push(
+        pair("ключових", num("keywords")),
+        links != null && candidates != null
+          ? `посилань ${links}/${candidates}`
+          : null,
+        alt != null && images != null ? `alt ${alt}/${images}` : null,
+      );
+      break;
+    }
+    default:
+      // Незнайомий критерій: показуємо його поля як є — краще сирі ключі, ніж
+      // порожній рядок і питання «а що там усередині».
+      for (const [field, value] of Object.entries(criterion)) {
+        if (field === "pass") continue;
+        if (typeof value === "number") parts.push(`${field} ${value}`);
+        else if (typeof value === "boolean")
+          parts.push(`${field} ${asMark(value)}`);
+      }
+  }
+
+  return parts.filter((part): part is string => Boolean(part)).join(" · ");
+}
+
+/** Один критерій рубрики у вигляді, готовому до показу. */
+export type QualityCriterionView = {
+  key: string;
+  label: string;
+  /** `null` = критерій не сказав `pass`; це не те саме, що «провалив». */
+  pass: boolean | null;
+  detail: string;
+};
+
+export function qualityCriteria(
+  metrics: ArticleMetrics | null,
+): QualityCriterionView[] {
+  // Порядок беремо як у рядку: пайплайн пише критерії в порядку рубрики, і
+  // власне сортування розійшлося б із карткою в Discord.
+  return qualityEntries(metrics).map(([key, criterion]) => ({
+    key,
+    label: QUALITY_LABELS[key] ?? key,
+    pass: criterionFlag(criterion, "pass"),
+    detail: criterionDetail(key, criterion),
+  }));
+}
+
 /**
  * Скільки критеріїв рубрики пройдено. Читає готовий `score`, а якщо його
  * немає — рахує по вкладених `pass`: рядки, записані до появи score, теж
@@ -378,11 +619,7 @@ export function qualityScore(
   const quality = metrics?.quality;
   if (!quality) return null;
 
-  const criteria = Object.entries(quality).filter(
-    ([key, value]) =>
-      key !== "score" && value !== null && typeof value === "object",
-  ) as [string, QualityCriterion][];
-
+  const criteria = qualityEntries(metrics);
   if (criteria.length === 0) return null;
 
   const passed =
@@ -390,7 +627,16 @@ export function qualityScore(
       ? quality.score
       : criteria.filter(([, value]) => value.pass === true).length;
 
-  return { passed, total: criteria.length };
+  // Стеля приходить із прогону: рубрика росла з пʼяти критеріїв до семи, і
+  // рахувати її по кількості критеріїв у рядку означало б «5/5» там, де
+  // насправді пʼять із семи. Старі рядки score_total не мають — там стеля
+  // лишається кількістю критеріїв, які вони встигли записати.
+  const total =
+    typeof quality.score_total === "number"
+      ? quality.score_total
+      : criteria.length;
+
+  return { passed, total };
 }
 
 /** Довжина статті в словах: сума розділів + вступ і висновок. */

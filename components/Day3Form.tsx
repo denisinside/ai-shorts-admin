@@ -128,12 +128,16 @@ export default function Day3Form({
       />
 
       {/* ---------------------------------------------- мета й метрики */}
+      {/* Форма лишається одним сирим полем навмисно: це аварійний інструмент,
+          а всі шість полів пише SEO-агент. Але хінт мусить називати те, що
+          рубрика насправді перевіряє, інакше правка руками тихо ламає
+          quality.seo_depth наступного прогону порівняння. */}
       <JsonTextarea
         name="seo"
         label="SEO (JSON)"
         rows={8}
         defaultValue={state.values?.seo ?? toJsonTextOrEmpty(record?.seo)}
-        hint="{seo_title, meta_description, slug, og_title, og_description, keywords[]}"
+        hint="{seo_title, meta_description, slug, og_title, og_description, keywords[]}. og_* мусять ВІДРІЗНЯТИСЯ від seo_title і мети, інакше падає quality.seo_depth; мета — 140–160 символів"
       />
 
       <TextField
@@ -150,7 +154,7 @@ export default function Day3Form({
         label="Метрики (JSON)"
         rows={10}
         defaultValue={state.values?.metrics ?? toJsonTextOrEmpty(record?.metrics)}
-        hint="Пише воркфлоу: elapsed_ms, llm_calls, models, rewrites, quality. Правити руками зазвичай не треба"
+        hint="Пише воркфлоу: elapsed_ms, llm_calls, models, rewrites, quality (plan_coverage, source_integrity, text_budget, seo_hygiene, coherence, style_compliance, seo_depth, score, score_total), rag, internal_links. Правити руками зазвичай не треба"
       />
 
       <FormFooter

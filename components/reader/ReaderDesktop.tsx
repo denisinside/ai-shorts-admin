@@ -157,9 +157,9 @@ export default function ReaderDesktop({
   const [botSettings, patchSettings] = useWaitbotSettings();
   // conversation_id носить клієнт, а не сервер: розмова прив'язана до вкладки,
   // і Dify не треба питати про історію окремим запитом, як це робить /aislop.
-  // Індекс словника (389 рядків, ~90 КБ) тягнеться ЛІНИВО: на сторінці, куди
+  // Індекс словника (389 рядків, ~140 КБ) тягнеться ЛІНИВО: на сторінці, куди
   // прийшли читати статтю, він не потрібен узагалі. Привід завантажити —
-  // перша репліка в чаті або відкрите словникове вікно.
+  // відкрите вікно бота (див. ефект нижче), словникове вікно або репліка.
   const [slangIndex, setSlangIndex] = useState<SlangIndex | null>(null);
   const slangAsked = useRef(false);
   const ensureSlang = useCallback(() => {
@@ -173,6 +173,46 @@ export default function ReaderDesktop({
       setSuggestions(pickSuggestions(index));
     });
   }, []);
+
+  /**
+   * Перекидання підказок ЧЕРЕЗ завантаження, а не через стан `slangIndex`.
+   *
+   * Прямий `pickSuggestions(slangIndex)` виглядав як мертва кнопка: поки
+   * індекс не приїхав, стан ще `null`, а на `null` генератор чесно віддає ту
+   * саму стартову константу — тобто клік нічого не змінював. `loadSlangIndex`
+   * кешує обіцянку в модулі, тож коли дані вже є, це безкоштовно, а коли ще
+   * ні — клік їх замовляє й перекидає набір, щойно вони прийдуть.
+   */
+  const rerollSuggestions = useCallback(() => {
+    ensureSlang();
+    loadSlangIndex().then((index) => {
+      setSlangIndex(index);
+      setSuggestions(pickSuggestions(index));
+    });
+  }, [ensureSlang]);
+
+  /**
+   * Вікно бота відкрите за замовчуванням, і підказки під його інпутом видно
+   * ще до першої репліки — тож словник треба замовити ВІДРАЗУ, інакше під
+   * інпутом висить стартова константа, а перекидання нічим не відрізняється
+   * від неї. Раніше приводом була перша репліка, і саме тому «працює лише
+   * після першого повідомлення».
+   *
+   * Але не в лоб: `requestIdleCallback` віддає мережу спершу статтям і
+   * картинкам стрічки. Причина ліні лишається чинною — 140 КБ на сторінці,
+   * куди прийшли читати, не мають конкурувати з тим, що читають.
+   */
+  const botOpen = Boolean(windows.waitbot?.open);
+  useEffect(() => {
+    if (!botOpen) return;
+    const idle = globalThis.requestIdleCallback;
+    if (!idle) {
+      const timer = setTimeout(ensureSlang, 900);
+      return () => clearTimeout(timer);
+    }
+    const handle = idle(() => ensureSlang(), { timeout: 2500 });
+    return () => globalThis.cancelIdleCallback?.(handle);
+  }, [botOpen, ensureSlang]);
 
   const conversationRef = useRef("");
   const userRef = useRef("");
@@ -536,7 +576,7 @@ export default function ReaderDesktop({
     }
     // Підказки перекидаємо після КОЖНОЇ відповіді: набір, що не змінюється,
     // навчає рівно чотирьом питанням і далі просто висить.
-    setSuggestions(pickSuggestions(slangIndex));
+    rerollSuggestions();
 
     setChat((current) => {
       const next = [...current];
@@ -797,7 +837,7 @@ export default function ReaderDesktop({
                   className="try-reroll"
                   aria-label="Інші підказки"
                   disabled={botBusy}
-                  onClick={() => setSuggestions(pickSuggestions(slangIndex))}
+                  onClick={rerollSuggestions}
                 >
                   ↻
                 </button>
