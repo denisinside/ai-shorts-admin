@@ -17,7 +17,10 @@ import {
 import { cn } from "@/lib/ui";
 import ArticleWindow from "./ArticleWindow";
 import DesktopWindow, {
+  isDynamicWindow,
   lookupKeyOf,
+  memeKeyOf,
+  memeWindowId,
   lookupWindowId,
   windowMeta,
   type WindowId,
@@ -26,6 +29,11 @@ import DesktopWindow, {
 import { DictionaryEntryBody, SlangBookBody } from "./DictionaryWindows";
 import type { WaitbotLang } from "@/lib/waitbot";
 import { useWaitbotSettings } from "@/lib/waitbot-settings";
+import {
+  pickSuggestions,
+  STARTER_SUGGESTIONS,
+  type Suggestion,
+} from "@/lib/waitbot-suggest";
 import SlangText from "./SlangText";
 import { loadSlangIndex, type SlangIndex } from "@/lib/slang-client";
 import Taskbar from "./Taskbar";
@@ -63,6 +71,11 @@ const CHAT_LIMIT = 8;
 
 type ChatMeme = { url: string; title: string; meaning: string };
 type ChatTurn = {
+  /**
+   * Свій id, а не індекс у масиві. Лог обрізається (`CHAT_LIMIT`), тож індекси
+   * зсуваються — а вікно з мемом відкрите й мусить лишитися тим самим вікном.
+   */
+  id: string;
   role: "user" | "bot";
   text: string;
   kind?: "pending" | "error";
@@ -74,15 +87,6 @@ const LANG_LABELS: Record<WaitbotLang, string> = {
   uk: "УКР",
   en: "ENG",
 };
-
-// По одній на кожну гілку воркфлоу: пояснити слово, розібрати фразу зі
-// сленгом, перекласти НА зумерську, дати мем.
-const BOT_PROMPTS = [
-  "ЩО ТАКЕ RIZZ",
-  "HE HAS NO RIZZ FR FR",
-  "ПЕРЕКЛАДИ: ВІН ДУЖЕ ВПЕВНЕНИЙ У СОБІ, ХОЧА ПІДСТАВ НЕМА",
-  "КИНЬ МЕМ ПРО ПОНЕДІЛОК",
-];
 
 /** Фасети в тому порядку, в якому вони стоять у меню топбара. */
 const NAV_FACETS: ReaderFacet[] = ["all", "ready", "draft", "demo"];
@@ -133,6 +137,20 @@ export default function ReaderDesktop({
   const [chat, setChat] = useState<ChatTurn[]>([]);
   const [botInput, setBotInput] = useState("");
   const [botBusy, setBotBusy] = useState(false);
+  /**
+   * Меми окремо від логу. Лог обрізається до восьми пар, а вікно з мемом може
+   * бути відкрите — і тоді воно мусить мати що показувати навіть після того,
+   * як сама репліка прокрутилася геть.
+   */
+  const [memes, setMemes] = useState<Record<string, ChatMeme>>({});
+  /** Перший набір — константа: кубик у серверному рендері дав би розбіжність
+   *  гідратації на кожному завантаженні `/blog`. */
+  const [suggestions, setSuggestions] = useState<Suggestion[]>(STARTER_SUGGESTIONS);
+  const turnSeq = useRef(0);
+  const nextTurnId = () => {
+    turnSeq.current += 1;
+    return `turn-${turnSeq.current}`;
+  };
   const [botSettingsOpen, setBotSettingsOpen] = useState(false);
   // Налаштування живуть у localStorage через зовнішнє сховище, а не в
   // useState: деталі й причина — у lib/waitbot-settings.ts.
@@ -147,7 +165,13 @@ export default function ReaderDesktop({
   const ensureSlang = useCallback(() => {
     if (slangAsked.current) return;
     slangAsked.current = true;
-    loadSlangIndex().then(setSlangIndex);
+    // Підказки перекидаються ТУТ, а не в ефекті на `slangIndex`: setState
+    // усередині ефекту — це зайвий рендер і привід для react-hooks, а
+    // `.then` після завантаження цілком легальне місце.
+    loadSlangIndex().then((index) => {
+      setSlangIndex(index);
+      setSuggestions(pickSuggestions(index));
+    });
   }, []);
 
   const conversationRef = useRef("");
@@ -210,6 +234,34 @@ export default function ReaderDesktop({
   );
 
   /**
+   * Відкриває мем окремим вікном. Той самий прийом, що зі словником: id вікна
+   * містить id репліки, тому один мем = одне вікно, а різні меми живуть поруч.
+   * Сама картинка кладеться в `memes`, бо репліка з логу може прокрутитися
+   * геть, а відкрите вікно мусить лишитися з вмістом.
+   */
+  const openMeme = useCallback(
+    (turnId: string, meme: ChatMeme) => {
+      setMemes((current) => ({ ...current, [turnId]: meme }));
+      const id = memeWindowId(turnId);
+      setWindows((prev) => {
+        const existing = prev[id];
+        if (existing) {
+          return existing.open ? prev : { ...prev, [id]: { ...existing, open: true } };
+        }
+        const openDynamic = Object.keys(prev).filter(
+          (other) => isDynamicWindow(other) && prev[other]?.open,
+        ).length;
+        return {
+          ...prev,
+          [id]: blankWindow((openDynamic % 6) * LOOKUP_CASCADE, WINDOW_Z_BASE),
+        };
+      });
+      focusWindow(id);
+    },
+    [focusWindow],
+  );
+
+  /**
    * Відкриває статтю словника про слово.
    *
    * Правило «одне вікно на одне слово» тут не перевіряється окремо — воно
@@ -230,7 +282,7 @@ export default function ReaderDesktop({
           return existing.open ? prev : { ...prev, [id]: { ...existing, open: true } };
         }
         const openLookups = Object.keys(prev).filter(
-          (other) => lookupKeyOf(other) !== null && prev[other]?.open,
+          (other) => isDynamicWindow(other) && prev[other]?.open,
         ).length;
         const offset = (openLookups % 6) * LOOKUP_CASCADE;
         return { ...prev, [id]: blankWindow(offset, WINDOW_Z_BASE) };
@@ -255,10 +307,11 @@ export default function ReaderDesktop({
    */
   const closeWindow = useCallback(
     (id: WindowId) => {
-      // Словникове вікно закривається НАСОВСІМ: постійні п'ять лишаються в
-      // стані згорнутими, а тримати мертвий стан на кожне слово, яке колись
-      // подивилися, означало б засмічений таскбар і зростання пам'яті.
-      if (lookupKeyOf(id) !== null) {
+      // Динамічне вікно (стаття словника, мем) закривається НАСОВСІМ:
+      // постійні лишаються в стані згорнутими, а тримати мертвий стан на
+      // кожне слово й кожну картинку, які колись відкривали, означало б
+      // засмічений таскбар і зростання пам'яті.
+      if (isDynamicWindow(id)) {
         setWindows((prev) => {
           const next = { ...prev };
           delete next[id];
@@ -277,7 +330,7 @@ export default function ReaderDesktop({
       for (const key of Object.keys(prev)) {
         // Динамічні вікна не «згортаються всі», а зникають: вони й з'явилися
         // від кліку, а не з меню.
-        if (lookupKeyOf(key) !== null) continue;
+        if (isDynamicWindow(key)) continue;
         const state = prev[key];
         if (state) next[key] = { ...state, open: false, max: false, x: 0, y: 0 };
       }
@@ -424,15 +477,19 @@ export default function ReaderDesktop({
         globalThis.crypto?.randomUUID?.() ?? String(Date.now());
     }
     const thinking = THINKING[Math.floor(Math.random() * THINKING.length)];
+    const pendingId = nextTurnId();
     setChat((current) =>
-      [...current, { role: "user" as const, text },
-       { role: "bot" as const, text: thinking, kind: "pending" as const }]
-        .slice(-CHAT_LIMIT * 2),
+      [
+        ...current,
+        { id: nextTurnId(), role: "user" as const, text },
+        { id: pendingId, role: "bot" as const, text: thinking, kind: "pending" as const },
+      ].slice(-CHAT_LIMIT * 2),
     );
     setBotInput("");
     setBotBusy(true);
 
     let reply: ChatTurn = {
+      id: pendingId,
       role: "bot",
       text: "не дістаюся до себе самого 😵 спробуй ще раз",
       kind: "error",
@@ -455,10 +512,15 @@ export default function ReaderDesktop({
         error?: string;
       };
       if (response.ok && body.answer) {
-        reply = { role: "bot", text: body.answer, meme: body.meme ?? undefined };
+        reply = {
+          id: pendingId,
+          role: "bot",
+          text: body.answer,
+          meme: body.meme ?? undefined,
+        };
         conversationRef.current = body.conversationId ?? "";
       } else if (body.error) {
-        reply = { role: "bot", text: body.error, kind: "error" };
+        reply = { id: pendingId, role: "bot", text: body.error, kind: "error" };
         // Застаріла розмова: наступне питання має початися з чистого аркуша,
         // інакше Dify відповідатиме тією самою помилкою вічно.
         if (response.status === 502) conversationRef.current = "";
@@ -469,6 +531,13 @@ export default function ReaderDesktop({
 
     // Замінюємо саме «думаю», а не останній елемент: поки чекали відповідь,
     // користувач міг нічого не додати, але припущення тут дешевше не робити.
+    if (reply.meme) {
+      setMemes((current) => ({ ...current, [reply.id]: reply.meme as ChatMeme }));
+    }
+    // Підказки перекидаємо після КОЖНОЇ відповіді: набір, що не змінюється,
+    // навчає рівно чотирьом питанням і далі просто висить.
+    setSuggestions(pickSuggestions(slangIndex));
+
     setChat((current) => {
       const next = [...current];
       for (let i = next.length - 1; i >= 0; i -= 1) {
@@ -674,15 +743,27 @@ export default function ReaderDesktop({
                       {turn.meme && (
                         /* Мем приходить окремим полем, а не посиланням у
                            тексті: у чат летить картинка, а не URL, який
-                           людині довелося б відкривати вручну. */
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img
-                          className="chat-meme"
-                          src={turn.meme.url}
-                          alt={turn.meme.title || "мем"}
-                          title={turn.meme.meaning}
-                          loading="lazy"
-                        />
+                           людині довелося б відкривати вручну.
+
+                           Кнопка, а не просто картинка: у вікні бота шириною
+                           430px мем усе одно лишається мініатюрою, тому клік
+                           відкриває його окремим вікном на весь зріст. */
+                        <button
+                          type="button"
+                          className="chat-meme-open"
+                          onClick={() => openMeme(turn.id, turn.meme as ChatMeme)}
+                          title={turn.meme.meaning || "Відкрити побільше"}
+                          aria-label={`Відкрити мем побільше: ${turn.meme.title || "мем"}`}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            className="chat-meme"
+                            src={turn.meme.url}
+                            alt={turn.meme.title || "мем"}
+                            loading="lazy"
+                          />
+                          <span className="chat-meme-hint">відкрити побільше</span>
+                        </button>
                       )}
                     </div>
                   ))}
@@ -709,16 +790,28 @@ export default function ReaderDesktop({
                 </button>
               </form>
 
-              <p className="try-label">Спробуй запитати:</p>
+              <p className="try-label">
+                Спробуй запитати:
+                <button
+                  type="button"
+                  className="try-reroll"
+                  aria-label="Інші підказки"
+                  disabled={botBusy}
+                  onClick={() => setSuggestions(pickSuggestions(slangIndex))}
+                >
+                  ↻
+                </button>
+              </p>
               <div className="suggestion-row">
-                {BOT_PROMPTS.map((prompt) => (
+                {suggestions.map((item) => (
                   <button
-                    key={prompt}
+                    key={item.label}
                     type="button"
                     disabled={botBusy}
-                    onClick={() => askBot(prompt)}
+                    title={item.query}
+                    onClick={() => askBot(item.query)}
                   >
-                    {prompt}
+                    {item.label}
                   </button>
                 ))}
               </div>
@@ -763,6 +856,50 @@ export default function ReaderDesktop({
                   fallback={known}
                   onLookup={openLookup}
                 />
+              </DesktopWindow>
+            );
+          })}
+
+        {/* ----------------------------------------------- мем на весь зріст
+            Окреме вікно на кожен мем: у вікні бота картинка лишається
+            мініатюрою, а тут її видно. Id вікна містить id репліки, тому
+            двічі той самий мем не відкрити, а різні — можна. */}
+        {Object.keys(windows)
+          .filter((id) => memeKeyOf(id) !== null && windows[id]?.open)
+          .map((id) => {
+            const turnId = memeKeyOf(id) as string;
+            const meme = memes[turnId];
+            return (
+              <DesktopWindow
+                key={id}
+                className="tool-window win-meme"
+                labelledBy={`${id}-title`}
+                title={
+                  <strong id={`${id}-title`}>
+                    {(meme?.title || "МЕМ").toUpperCase()}
+                  </strong>
+                }
+                {...chromeFor(id)}
+              >
+                <div className="meme-body">
+                  {meme ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={meme.url} alt={meme.title || "мем"} />
+                      {meme.meaning && <p className="meme-meaning">{meme.meaning}</p>}
+                      <a
+                        className="meme-source"
+                        href={meme.url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                      >
+                        відкрити оригінал ↗
+                      </a>
+                    </>
+                  ) : (
+                    <p className="meme-meaning">Цей мем уже не в логу.</p>
+                  )}
+                </div>
               </DesktopWindow>
             );
           })}

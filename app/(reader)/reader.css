@@ -15,8 +15,32 @@
   --ink: #17212a;
   --yellow: #ffd20f;
   --pink: #ff5fa9;
-  --glass: rgba(226, 247, 255, 0.32);
-  --line: rgba(255, 255, 255, 0.78);
+  /* Скло ВІКНА: майже все тіло вікна перекрите власним фоном, тому тут
+     важливий лише край і смуга під титульним рядком. На 0.32 крізь героя
+     наскрізь читалися картки стрічки. */
+  --glass: rgba(226, 247, 255, 0.55);
+  /* Скло ХРОМУ (топбар, таскбар, меню «Пуск») окреме, бо в нього БІЛИЙ текст,
+     а шпалери світлі: світле скло під білим текстом нечитабельне за
+     визначенням, скільки не додавай блюру.
+     Насиченість зсунута на третину до сірого й щільність знижена на 40% —
+     свідомий обмін на прохання: синява читалася як «занадто темно-синє».
+     Білий текст тримається тепер на межі й тінях, а не на самій щільності
+     фону, тож правити ці числа вниз далі не варто без перевірки контрасту. */
+  --glass-chrome: rgba(24, 54, 73, 0.444);
+  /* Меню «Пуск» і календар лежать ВСЕРЕДИНІ таскбара, а елемент із
+     backdrop-filter створює backdrop root для нащадків: власний блюр дитини,
+     що вилізла за межі батька, у браузері не працює. Саме тому крізь меню
+     читалися картки, хоч блюр у стилях був. Тримати їх мусить щільність, а не
+     блюр — звідси окремий токен, щільніший за решту хрому. Він же й найперше
+     страждає від зниження щільності: якщо крізь меню знову почне просвічувати
+     стрічка, підіймати треба саме його, а не блюр. */
+  --glass-chrome-popup: rgba(24, 54, 73, 0.54);
+  --line: rgba(255, 255, 255, 0.85);
+  /* На темному склі біла межа в 0.78 світиться сильніше за сам текст */
+  --line-chrome: rgba(255, 255, 255, 0.34);
+  /* Титульний рядок несе білий текст і кнопки керування, тому лишається
+     щільнішим за тіло вікна — але помітно прозорішим, ніж був. */
+  --titlebar: rgba(25, 56, 77, 0.516);
   /* Нативні контроли (поле пошуку) успадковують схему кореня, а тут світло */
   color-scheme: light;
 }
@@ -88,12 +112,23 @@ a:focus-visible {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.08),
-    transparent 35%,
-    rgba(24, 81, 27, 0.08)
-  );
+  /* Вінʼєтка, а не «затемнення шпалер»: підписи ярликів і шапка стрічки лежать
+     просто на траві й небі, де локальна яскравість гуляє від 0.2 до 1.0 —
+     білий текст губиться саме на світлих плямах. Скрим по краях піднімає
+     контраст там, де текст, і лишає середину шпалер яскравою. */
+  background:
+    linear-gradient(
+      180deg,
+      rgba(2, 28, 44, 0.22),
+      rgba(2, 28, 44, 0.04) 26%,
+      rgba(2, 28, 44, 0.07) 60%,
+      rgba(2, 28, 44, 0.34)
+    ),
+    radial-gradient(
+      125% 90% at 50% 45%,
+      transparent 42%,
+      rgba(2, 28, 44, 0.2) 100%
+    );
   z-index: -1;
 }
 
@@ -102,10 +137,25 @@ a:focus-visible {
   border: 1px solid var(--line);
   background: var(--glass);
   box-shadow:
-    0 18px 55px rgba(12, 65, 88, 0.2),
-    inset 0 1px rgba(255, 255, 255, 0.34);
-  backdrop-filter: blur(16px) saturate(125%);
-  -webkit-backdrop-filter: blur(16px) saturate(125%);
+    0 22px 60px rgba(6, 40, 58, 0.34),
+    0 2px 10px rgba(6, 40, 58, 0.18),
+    inset 0 1px rgba(255, 255, 255, 0.4);
+  /* Піднято з 16px: на 16px крізь скло читалися ЛІТЕРИ картки під вікном, а не
+     пляма кольору. Скло має розмивати вміст, а не показувати його — і саме
+     блюр, а не глуха плашка, лишає ефект скла на місці. */
+  backdrop-filter: blur(26px) saturate(135%);
+  -webkit-backdrop-filter: blur(26px) saturate(135%);
+}
+
+/* Хром має власне (темне) скло: див. --glass-chrome. Темна внутрішня обводка
+   тримає край панелі видимим на світлих шпалерах, де біла межа зникає. */
+.glass-panel {
+  border-color: var(--line-chrome);
+  background: var(--glass-chrome);
+  box-shadow:
+    0 20px 50px rgba(4, 32, 48, 0.42),
+    inset 0 1px rgba(255, 255, 255, 0.26),
+    inset 0 0 0 1px rgba(6, 38, 58, 0.35);
 }
 
 .skip-link {
@@ -144,6 +194,7 @@ a:focus-visible {
   border: 0;
   background: none;
   color: #fff;
+  text-shadow: 0 1px 2px rgba(2, 24, 38, 0.55);
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(25px, 2.1vw, 36px);
   letter-spacing: -0.04em;
@@ -166,8 +217,12 @@ a:focus-visible {
   background: none;
   color: #fff;
   font-size: 14px;
+  /* 14px у розрідженому апперкейсі — найтонший текст у хромі; вага й тінь
+     дають йому шанс на будь-якому фрагменті шпалер, що просвічує. */
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  text-shadow: 0 1px 2px rgba(2, 24, 38, 0.5);
 }
 
 .topbar nav button:hover {
@@ -184,13 +239,16 @@ a:focus-visible {
 
 .search-box {
   height: 42px;
-  border: 1px solid rgba(255, 255, 255, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.45);
   border-radius: 24px;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 16px;
-  background: rgba(75, 154, 201, 0.18);
+  /* Поле вводу мусить бути темнішим за панель, а не світлішим: у нього білий
+     текст, і на 0.18 світло-синього він зливався з небом на шпалерах. */
+  background: rgba(11, 30, 42, 0.252);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.18);
 }
 
 .search-box span {
@@ -207,7 +265,7 @@ a:focus-visible {
 }
 
 .search-box input::placeholder {
-  color: rgba(255, 255, 255, 0.62);
+  color: rgba(255, 255, 255, 0.78);
 }
 
 /* ------------------------------------------------------------------- вікна */
@@ -236,10 +294,15 @@ a:focus-visible {
   justify-content: space-between;
   padding-left: 18px;
   color: #fff;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.42);
-  background: rgba(44, 139, 193, 0.21);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+  /* 0.21 означало «майже нічого»: назва вікна білим лежала просто на тому, що
+     під вікном — а це або яскраве небо, або текст іншого вікна. Щільне темне
+     скло робить контраст назви незалежним від фону. */
+  background: var(--titlebar);
   font-size: 13px;
+  font-weight: 700;
   letter-spacing: 0.06em;
+  text-shadow: 0 1px 2px rgba(3, 24, 38, 0.5);
 }
 
 .titlebar > span {
@@ -271,7 +334,7 @@ a:focus-visible {
 }
 
 .window-controls button:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.26);
 }
 
 .window-controls button:last-child:hover {
@@ -320,10 +383,13 @@ a:focus-visible {
 .hero-content {
   min-height: 370px;
   padding: 42px 56px 34px;
+  /* 0.78 у правому нижньому куті пропускало наскрізь вікно бота й картки
+     стрічки — «WAIT, WHAT?» і кнопка «ПОЧАТИ ЧИТАТИ» лежали на чужому тексті.
+     Відчуття скла тут дає блюр і межі вікна, а не дірка у фоні. */
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.97),
-    rgba(249, 249, 242, 0.78)
+    rgba(255, 255, 255, 0.985),
+    rgba(248, 248, 240, 0.945)
   );
   position: relative;
 }
@@ -333,7 +399,7 @@ a:focus-visible {
   position: absolute;
   inset: auto 0 0;
   height: 92px;
-  background: linear-gradient(0deg, rgba(159, 194, 116, 0.35), transparent);
+  background: linear-gradient(0deg, rgba(159, 194, 116, 0.28), transparent);
   pointer-events: none;
 }
 
@@ -348,7 +414,7 @@ a:focus-visible {
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: #6b6b62;
+  color: #585850;
 }
 
 .hero-content h1 {
@@ -388,12 +454,15 @@ a:focus-visible {
   border-radius: 999px;
   padding: 13px 24px;
   background: var(--yellow);
-  color: #211b00;
+  color: #1c1700;
   font-weight: 800;
   letter-spacing: 0.04em;
+  /* Жовте на світлому фоні тримається не кольором, а краєм: обводка й щільніша
+     тінь відділяють кнопку від сторінки, інакше вона читається як пляма. */
   box-shadow:
     inset 0 1px #fff4a7,
-    0 8px 20px rgba(187, 128, 0, 0.18);
+    inset 0 0 0 1px rgba(120, 82, 0, 0.35),
+    0 10px 22px rgba(58, 40, 0, 0.28);
 }
 
 .primary-button:hover {
@@ -412,10 +481,12 @@ a:focus-visible {
 
 .bot-content {
   padding: 18px;
+  /* Тіло бота було найпрозорішим місцем сторінки (0.43): крізь нього видно
+     було і стрічку, і герой. Темного тексту чату це стосується напряму. */
   background: linear-gradient(
     180deg,
-    rgba(137, 209, 242, 0.43),
-    rgba(242, 243, 221, 0.62)
+    rgba(158, 216, 244, 0.9),
+    rgba(244, 245, 226, 0.955)
   );
 }
 
@@ -436,9 +507,11 @@ a:focus-visible {
   margin: 0 auto 10px;
   max-width: 310px;
   border-radius: 15px;
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.96);
   line-height: 1.35;
-  box-shadow: 0 7px 18px rgba(37, 80, 92, 0.1);
+  box-shadow:
+    inset 0 0 0 1px rgba(23, 33, 42, 0.07),
+    0 7px 18px rgba(37, 80, 92, 0.16);
 }
 
 .chat-log {
@@ -471,8 +544,33 @@ a:focus-visible {
 }
 
 .chat-message.bot {
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.9);
   white-space: pre-wrap;
+}
+
+/* Інлайновий markdown у репліці. Модель пише `**juiced**`, і без цих правил
+   розібраний <strong> нічим не відрізнявся б від решти тексту — тобто розбір
+   був би непомітний, а зірочки просто зникли б. */
+.chat-message strong {
+  font-weight: 700;
+  color: #14313f;
+}
+
+.chat-message em {
+  font-style: italic;
+}
+
+.chat-message code {
+  padding: 1px 4px;
+  border-radius: 5px;
+  background: rgba(20, 49, 63, 0.09);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.chat-message a {
+  color: #0f5479;
+  text-decoration: underline;
 }
 
 /* «Думаю» і помилка — той самий бабл, інша температура: користувач мусить
@@ -495,19 +593,33 @@ a:focus-visible {
 
 /* Налаштування бота: мова відповіді й мем після перекладу. Панель згорнута
    за замовчуванням — вікно й так тісне, а міняють ці два перемикачі раз. */
+/* Значок ⚙ був 15px і сидів на текстовому базлайні репліки — тобто ні
+   помітний, ні по центру: кнопка була рівно розміром з гліф, і будь-яка
+   різниця метрик шрифту зсувала його. Тепер це власний фіксований бокс із
+   grid-центруванням — гліф стоїть по обох осях незалежно від шрифту. */
 .bot-gear {
   float: right;
-  border: 0;
-  background: transparent;
-  font-size: 15px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -3px -6px 0 8px;
+  border: 1px solid rgba(23, 33, 42, 0.16);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.9);
+  color: #2b3640;
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
-  opacity: 0.55;
+  opacity: 0.78;
 }
 
 .bot-gear[aria-expanded="true"],
 .bot-gear:hover {
   opacity: 1;
+  border-color: rgba(23, 33, 42, 0.3);
+  background: rgba(255, 244, 186, 0.95);
 }
 
 .bot-settings {
@@ -516,7 +628,8 @@ a:focus-visible {
   margin-bottom: 9px;
   padding: 9px 11px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: inset 0 0 0 1px rgba(23, 33, 42, 0.08);
   font-size: 11px;
 }
 
@@ -558,14 +671,96 @@ a:focus-visible {
   gap: 5px;
 }
 
-/* Мем не має розсовувати вікно: ширина обмежена баблом, висота — щоб
-   вертикальні меми (а їх у датасеті більшість) не з'їдали весь лог. */
-.chat-meme {
+/* Мем у логу: на всю ширину бабла й вище, ніж було.
+   170px під вертикальний мем — це смужка, на якій не прочитати підпис, а
+   підпис у мемі і є мем. Стеля тепер від висоти екрана, щоб на низькому
+   вікно бота не поїхало під таскбар. */
+.chat-meme-open {
   justify-self: start;
-  max-width: 78%;
-  max-height: 170px;
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+  line-height: 0;
+}
+
+.chat-meme {
+  display: block;
+  width: 100%;
+  max-height: min(320px, 34vh);
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 6px 16px rgba(37, 80, 92, 0.18);
+}
+
+/* Підказка «відкрити побільше» лежить НА картинці й з'являється на ховері:
+   окремим рядком під мемом вона забирала б висоту в логу, де її й так нема. */
+.chat-meme-hint {
+  position: absolute;
+  inset: auto 7px 7px auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(24, 54, 73, 0.492);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.chat-meme-open:hover .chat-meme-hint,
+.chat-meme-open:focus-visible .chat-meme-hint {
+  opacity: 1;
+}
+
+.chat-meme-open:focus-visible .chat-meme {
+  outline: 2px solid var(--yellow);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------- мем окремим вікном */
+.win-meme {
+  left: 34%;
+  top: 140px;
+  width: min(460px, 36%);
+}
+
+.meme-body {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  background: rgba(253, 253, 251, 0.99);
+  max-height: min(560px, 72vh);
+  overflow: auto;
+}
+
+.meme-body img {
+  display: block;
+  width: 100%;
+  height: auto;
   border-radius: 10px;
   border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.meme-meaning {
+  margin: 0;
+  font-family: Georgia, serif;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #333;
+}
+
+.meme-source {
+  justify-self: start;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11px;
+  color: #0f5479;
 }
 
 .bot-form {
@@ -596,10 +791,40 @@ a:focus-visible {
 }
 
 .try-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   margin: 12px 0 7px;
   color: #fff;
   font-size: 11px;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+/* Перекидання підказок. Підказки міняються й самі — після кожної відповіді, —
+   але без кнопки людина цього не знає й не має чим спробувати ще раз. */
+.try-reroll {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  background: rgba(24, 54, 73, 0.3);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.try-reroll:hover:not(:disabled) {
+  background: rgba(24, 54, 73, 0.468);
+}
+
+.try-reroll:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .suggestion-row {
@@ -901,16 +1126,16 @@ a:focus-visible {
   flex-direction: column;
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.94),
-    rgba(242, 243, 235, 0.9)
+    rgba(255, 255, 255, 0.99),
+    rgba(243, 244, 236, 0.965)
   );
 }
 
 .tool-note {
   margin: 0;
   padding: 12px 16px;
-  border-bottom: 1px solid rgba(23, 33, 42, 0.1);
-  color: #4c555b;
+  border-bottom: 1px solid rgba(23, 33, 42, 0.14);
+  color: #3c464c;
   font-size: 11px;
   line-height: 1.45;
 }
@@ -927,7 +1152,7 @@ a:focus-visible {
 .tool-empty {
   margin: 0;
   padding: 18px 16px 22px;
-  color: #5a666e;
+  color: #414c53;
   font-size: 13px;
   line-height: 1.5;
 }
@@ -935,8 +1160,8 @@ a:focus-visible {
 .tool-fine {
   margin: 16px 0 0;
   padding-top: 12px;
-  border-top: 1px solid rgba(23, 33, 42, 0.1);
-  color: #5a666e;
+  border-top: 1px solid rgba(23, 33, 42, 0.14);
+  color: #414c53;
   font-size: 11px;
   line-height: 1.5;
 }
@@ -952,11 +1177,11 @@ a:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border: 1px solid rgba(35, 143, 205, 0.28);
+  border: 1px solid rgba(20, 99, 143, 0.42);
   border-radius: 999px;
   padding: 5px 11px;
-  background: rgba(35, 143, 205, 0.09);
-  color: #14638f;
+  background: rgba(35, 143, 205, 0.16);
+  color: #0f5479;
   font-size: 12px;
   font-weight: 700;
 }
@@ -999,7 +1224,7 @@ a:focus-visible {
 }
 
 .feed-list button:hover {
-  background: rgba(35, 143, 205, 0.1);
+  background: rgba(35, 143, 205, 0.16);
 }
 
 .feed-dot {
@@ -1022,7 +1247,7 @@ a:focus-visible {
 }
 
 .feed-text small {
-  color: #5a666e;
+  color: #41505a;
   font-size: 10px;
 }
 
@@ -1067,12 +1292,12 @@ a:focus-visible {
 .about-stats div {
   padding: 8px 6px;
   border-radius: 10px;
-  background: rgba(35, 143, 205, 0.1);
+  background: rgba(35, 143, 205, 0.15);
   text-align: center;
 }
 
 .about-stats dt {
-  color: #4c555b;
+  color: #39434a;
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1104,7 +1329,13 @@ a:focus-visible {
   border: 0;
   color: #fff;
   background: none;
-  text-shadow: 0 1px 3px rgba(0, 45, 75, 0.75);
+  /* Підпис ярлика — білий текст просто на шпалерах, без жодної підкладки.
+     Дві тіні: щільна близька тримає межу літер, широка гасить світлу пляму
+     під ними. */
+  font-weight: 700;
+  text-shadow:
+    0 1px 2px rgba(2, 24, 38, 0.9),
+    0 2px 12px rgba(2, 24, 38, 0.65);
 }
 
 .desktop-shortcut:hover {
@@ -1124,7 +1355,8 @@ a:focus-visible {
   background: linear-gradient(145deg, #ffd85a, #d4ad21);
   box-shadow:
     inset 0 2px rgba(255, 255, 255, 0.65),
-    0 8px 14px rgba(10, 78, 107, 0.18);
+    inset 0 0 0 1px rgba(0, 0, 0, 0.14),
+    0 8px 18px rgba(3, 34, 52, 0.4);
   text-shadow: none;
 }
 
@@ -1151,7 +1383,7 @@ a:focus-visible {
 
 .desktop-shortcut small {
   font-size: 10px;
-  opacity: 0.9;
+  opacity: 1;
 }
 
 .desktop-shortcut[aria-pressed="true"] .shortcut-icon {
@@ -1192,7 +1424,10 @@ a:focus-visible {
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  text-shadow: 0 1px 3px rgba(0, 45, 75, 0.6);
+  font-weight: 700;
+  text-shadow:
+    0 1px 2px rgba(2, 24, 38, 0.9),
+    0 2px 12px rgba(2, 24, 38, 0.6);
 }
 
 .strip-head p {
@@ -1214,14 +1449,17 @@ a:focus-visible {
   height: 30px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.8);
   border-radius: 50%;
   color: #fff;
-  background: rgba(75, 154, 201, 0.32);
+  /* Кругла кнопка 30px із білою стрілкою — найменша цятка над шпалерами;
+     на 0.32 світло-синього її просто не було видно над небом. */
+  background: rgba(20, 49, 67, 0.372);
+  box-shadow: 0 4px 12px rgba(2, 28, 44, 0.4);
   font-size: 17px;
   line-height: 1;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .strip-nav button:hover:not(:disabled) {
@@ -1282,7 +1520,7 @@ a:focus-visible {
 .article-card {
   min-width: 0;
   border-radius: 14px;
-  background: rgba(247, 248, 241, 0.95);
+  background: rgba(247, 248, 241, 0.985);
   transition:
     transform 0.18s ease,
     box-shadow 0.18s ease;
@@ -1404,7 +1642,7 @@ a:focus-visible {
 .article-copy small {
   margin-top: auto;
   padding-top: 8px;
-  color: #4c555b;
+  color: #3b454b;
   font-size: 10px;
   display: flex;
   align-items: center;
@@ -1445,7 +1683,8 @@ a:focus-visible {
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 1px 3px rgba(2, 28, 44, 0.5);
 }
 
 .strip-dots button[aria-current="true"] {
@@ -1465,7 +1704,7 @@ a:focus-visible {
   padding: 22px;
   border: 0;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.96);
   font-weight: 700;
   text-align: left;
 }
@@ -1491,15 +1730,21 @@ a:focus-visible {
   bottom: -2px;
   width: 76px;
   height: 76px;
-  border: 1px solid #fff;
+  border: 1px solid rgba(255, 255, 255, 0.9);
   border-radius: 50%;
   color: var(--yellow);
-  background: rgba(84, 124, 93, 0.62);
+  /* Зелене напівпрозоре коло на зеленому полі шпалер зникало разом із жовтим
+     значком у ньому. Темне скло тримає кнопку на місці за будь-яких шпалер. */
+  background: rgba(14, 54, 44, 0.78);
+  backdrop-filter: blur(16px) saturate(130%);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
   font-size: 43px;
-  text-shadow: 0 3px #b78100;
+  text-shadow:
+    0 3px #8a6200,
+    0 0 14px rgba(0, 0, 0, 0.35);
   box-shadow:
-    0 12px 28px rgba(0, 65, 74, 0.27),
-    inset 0 2px rgba(255, 255, 255, 0.65);
+    0 14px 30px rgba(0, 40, 48, 0.45),
+    inset 0 2px rgba(255, 255, 255, 0.55);
 }
 
 .start-button:hover,
@@ -1526,6 +1771,7 @@ a:focus-visible {
   padding: 16px;
   border-radius: 20px;
   color: #fff;
+  background: var(--glass-chrome-popup);
 }
 
 .start-menu__title {
@@ -1551,17 +1797,22 @@ a:focus-visible {
   justify-items: center;
   gap: 5px;
   padding: 11px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.42);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.14);
+  /* Плитка ТЕМНІША за меню, а не світліша. Світла заливка на світлому склі
+     давала рівно те, що на скриншоті: підпис «Головна» поверх картки статті.
+     Заглиблена плитка + світла межа лишає рельєф, але тримає ~8:1. */
+  background: rgba(11, 28, 39, 0.204);
   color: #fff;
   font-size: 10px;
   line-height: 1.2;
   text-align: center;
+  text-shadow: 0 1px 2px rgba(2, 24, 38, 0.6);
 }
 
 .start-menu__grid button:hover {
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(43, 76, 98, 0.33);
+  border-color: rgba(255, 255, 255, 0.6);
   transform: translateY(-2px);
 }
 
@@ -1585,7 +1836,7 @@ a:focus-visible {
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  opacity: 0.75;
+  opacity: 0.92;
 }
 
 .start-menu__facets {
@@ -1595,10 +1846,10 @@ a:focus-visible {
 }
 
 .start-menu__facets button {
-  border: 1px solid rgba(255, 255, 255, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.42);
   border-radius: 999px;
   padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(11, 28, 39, 0.18);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -1613,17 +1864,21 @@ a:focus-visible {
 .start-menu__quit {
   width: 100%;
   margin-top: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.45);
   border-radius: 12px;
   padding: 9px;
-  background: rgba(238, 91, 102, 0.28);
+  /* «Закрити всі вікна» на 0.28 зливалося з панеллю — небезпечна дія, якої не
+     видно. Щільніший темно-червоний і читається як червоний, і тримає білий
+     підпис. */
+  background: rgba(170, 34, 44, 0.6);
   color: #fff;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .start-menu__quit:hover {
-  background: #ee5b66;
+  /* Не чистий #ee5b66: білий на ньому дає 3.3:1. */
+  background: #cf3a46;
 }
 
 .task-apps {
@@ -1645,13 +1900,15 @@ a:focus-visible {
 }
 
 .task-apps button:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(43, 76, 98, 0.36);
 }
 
 /* Підкреслення = вікно відкрите. Той самий сигнал, що в справжній панелі:
    іконка є завжди, смужка з'являється лише в запущеного. */
 .task-apps button.is-running {
-  background: rgba(255, 255, 255, 0.2);
+  /* Заглиблення, а не підсвітка: світла плашка під білим підписом опускала
+     контраст до ~3.9:1, а сигнал «запущено» несе жовта смужка нижче. */
+  background: rgba(14, 34, 46, 0.27);
 }
 
 .task-apps button.is-running::after {
@@ -1698,7 +1955,7 @@ a:focus-visible {
 }
 
 button.tray-item:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(43, 76, 98, 0.36);
 }
 
 .tray-badge {
@@ -1728,7 +1985,7 @@ button.tray-item:hover {
   display: block;
   width: 24px;
   height: 12px;
-  border: 1.5px solid rgba(255, 255, 255, 0.8);
+  border: 1.5px solid rgba(255, 255, 255, 0.92);
   border-radius: 4px;
   padding: 1.5px;
 }
@@ -1750,7 +2007,7 @@ button.tray-item:hover {
   width: 2.5px;
   height: 4px;
   border-radius: 0 2px 2px 0;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .tray-battery.is-charging::before {
@@ -1766,7 +2023,7 @@ button.tray-item:hover {
 }
 
 .tray-clock:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(43, 76, 98, 0.36);
 }
 
 .system-tray time {
@@ -1790,13 +2047,17 @@ button.tray-item:hover {
   z-index: 50;
   width: 250px;
   padding: 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-chrome);
   border-radius: 18px;
   color: #fff;
-  background: rgba(44, 139, 193, 0.42);
-  box-shadow: 0 18px 55px rgba(12, 65, 88, 0.32);
-  backdrop-filter: blur(18px) saturate(125%);
-  -webkit-backdrop-filter: blur(18px) saturate(125%);
+  /* Той самий хром, що й таскбар: цифри дрібні (11px), і 0.42 світло-синього
+     означало календар поверх карток стрічки. */
+  background: var(--glass-chrome-popup);
+  box-shadow:
+    0 20px 50px rgba(4, 32, 48, 0.45),
+    inset 0 1px rgba(255, 255, 255, 0.26);
+  backdrop-filter: blur(26px) saturate(130%);
+  -webkit-backdrop-filter: blur(26px) saturate(130%);
 }
 
 .tray-popup__title {
@@ -1817,7 +2078,7 @@ button.tray-item:hover {
   padding-bottom: 4px;
   font-size: 9px;
   text-align: center;
-  opacity: 0.7;
+  opacity: 0.88;
 }
 
 .calendar span {
@@ -1845,15 +2106,15 @@ button.tray-item:hover {
   display: grid;
   place-items: center;
   padding: 22px;
-  background: rgba(5, 41, 56, 0.42);
-  backdrop-filter: blur(8px);
+  background: rgba(4, 30, 44, 0.6);
+  backdrop-filter: blur(10px);
 }
 
 .article-modal {
   width: min(820px, 96vw);
   max-height: 88vh;
   overflow: auto;
-  background: rgba(249, 249, 242, 0.96);
+  background: rgba(249, 249, 242, 0.99);
   overscroll-behavior: contain;
 }
 
@@ -1878,8 +2139,8 @@ button.tray-item:hover {
   top: 0;
   z-index: 2;
   /* Липкий титульний рядок мусить бути щільним: під ним їде текст */
-  background: rgba(31, 118, 167, 0.92);
-  backdrop-filter: blur(10px);
+  background: rgba(25, 56, 77, 0.57);
+  backdrop-filter: blur(16px);
 }
 
 .article-modal > img {
@@ -1974,7 +2235,7 @@ button.tray-item:hover {
 
 .article-figure figcaption {
   margin-top: 8px;
-  color: #5a666e;
+  color: #465158;
   font-size: 12px;
   line-height: 1.4;
 }
@@ -1992,8 +2253,8 @@ button.tray-item:hover {
   display: inline-block;
   border-radius: 999px;
   padding: 4px 10px;
-  background: rgba(35, 143, 205, 0.12);
-  color: #14638f;
+  background: rgba(35, 143, 205, 0.16);
+  color: #0f5479;
   font-size: 11px;
   text-decoration: none;
 }
@@ -2038,7 +2299,7 @@ button.tray-item:hover {
 }
 
 .panel-link {
-  color: #14638f;
+  color: #0f5479;
   font-size: 12px;
   font-weight: 700;
 }
@@ -2067,9 +2328,9 @@ button.tray-item:hover {
 }
 
 .ww-md a {
-  color: #14638f;
+  color: #0f5479;
   text-decoration: underline;
-  text-decoration-color: rgba(20, 99, 143, 0.4);
+  text-decoration-color: rgba(15, 84, 121, 0.55);
   text-underline-offset: 2px;
 }
 
@@ -2128,8 +2389,8 @@ button.tray-item:hover {
   border: 1px solid #fff;
   border-radius: 999px;
   color: #fff;
-  background: rgba(22, 51, 61, 0.82);
-  backdrop-filter: blur(12px);
+  background: rgba(16, 32, 39, 0.552);
+  backdrop-filter: blur(16px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
 }
 

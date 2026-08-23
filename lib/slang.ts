@@ -26,6 +26,13 @@ export type SlangIndexEntry = {
   short: string;
   partOfSpeech: string;
   register: string;
+  /**
+   * Українські відповідники їдуть уже в ІНДЕКСІ, а не лише в повній статті.
+   * Це +20 КБ на 98, зате вікно словника справді шукає за значенням («як
+   * сказати брехня»), а не лише за коротким описом, і випадкові підказки під
+   * інпутом мають з чого будувати питання «як сказати X по-зумерськи».
+   */
+  ukEquivalents: string[];
   /** Слово збігається зі звичайним англійським — у тексті не підкреслюємо. */
   ambiguous: boolean;
 };
@@ -33,7 +40,6 @@ export type SlangIndexEntry = {
 /** Повна стаття словника. Тягнеться на клік, а не разом з індексом. */
 export type SlangEntry = SlangIndexEntry & {
   explanation: string;
-  ukEquivalents: string[];
   enSynonyms: string[];
   related: string[];
   examples: { en: string; uk: string }[];
@@ -41,8 +47,9 @@ export type SlangEntry = SlangIndexEntry & {
   urbanPermalinks: string[];
 };
 
-const INDEX_COLUMNS = "key,term,aka,short,part_of_speech,register,ambiguous";
-const FULL_COLUMNS = `${INDEX_COLUMNS},explanation,uk_equivalents,en_synonyms,related,examples,sources,urban_permalinks`;
+const INDEX_COLUMNS =
+  "key,term,aka,short,part_of_speech,register,ambiguous,uk_equivalents";
+const FULL_COLUMNS = `${INDEX_COLUMNS},explanation,en_synonyms,related,examples,sources,urban_permalinks`;
 
 /** jsonb з бази приходить непередбачувано — то масивом, то рядком із JSON. */
 function toStringArray(value: unknown): string[] {
@@ -80,6 +87,7 @@ function toIndexEntry(row: Row): SlangIndexEntry {
     short: String(row.short ?? ""),
     partOfSpeech: String(row.part_of_speech ?? ""),
     register: String(row.register ?? ""),
+    ukEquivalents: toStringArray(row.uk_equivalents),
     ambiguous: row.ambiguous === true,
   };
 }
@@ -88,7 +96,6 @@ function toEntry(row: Row): SlangEntry {
   return {
     ...toIndexEntry(row),
     explanation: String(row.explanation ?? ""),
-    ukEquivalents: toStringArray(row.uk_equivalents),
     enSynonyms: toStringArray(row.en_synonyms),
     related: toStringArray(row.related),
     examples: toExamples(row.examples),

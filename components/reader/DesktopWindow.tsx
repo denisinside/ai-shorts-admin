@@ -55,13 +55,47 @@ export const WINDOW_META: Record<FixedWindowId, WindowMeta> = {
   about: { label: "Про студію", icon: "◈", file: "waitwhat://about" },
 };
 
-/** Префікс динамічних вікон словника. `lookup:<key>` -> стаття про слово. */
+/** Префікси динамічних вікон: стаття словника й мем на весь зріст. */
 export const LOOKUP_PREFIX = "lookup:";
+export const MEME_PREFIX = "meme:";
+
+/**
+ * Скільки лишати видимим, щоб вікно завжди можна було закрити.
+ *
+ * Топбар фіксований і лежить ВИЩЕ вікон (z-index 30 проти 12+), тож затягнуте
+ * під нього вікно ховає власний титульний рядок разом із хрестиком — і стає
+ * недосяжним. Те саме з таскбаром знизу й із краями екрана. Тому перетягування
+ * обмежене: не «щоб було красиво», а щоб вікно не можна було втратити.
+ *
+ * Підняти вікна над топбаром замість цього не можна: топбар — це навігація,
+ * і вікно, що накриває меню, ламає сторінку інакше, але так само.
+ */
+const GAP = 8;
+/** Скільки титульного рядка лишається над таскбаром. */
+const TITLEBAR_KEEP = 44;
+/** Скільки вікна лишається в кадрі по горизонталі. */
+const SIDE_KEEP = 120;
+
+const clamp = (value: number, min: number, max: number) =>
+  // max може виявитися меншим за min на вузькому екрані: тоді перемагає
+  // верхня межа, бо вона про доступність кнопок, а не про естетику.
+  Math.max(min, Math.min(max, value));
 
 export const lookupWindowId = (key: string) => `${LOOKUP_PREFIX}${key}`;
+export const memeWindowId = (key: string) => `${MEME_PREFIX}${key}`;
 
 export const lookupKeyOf = (id: WindowId) =>
   id.startsWith(LOOKUP_PREFIX) ? id.slice(LOOKUP_PREFIX.length) : null;
+
+export const memeKeyOf = (id: WindowId) =>
+  id.startsWith(MEME_PREFIX) ? id.slice(MEME_PREFIX.length) : null;
+
+/**
+ * Динамічне вікно — будь-яке, якого немає в `WINDOW_META`. Перевірка по
+ * двокрапці, а не перелік префіксів: наступний тип вікна (стаття? профіль?)
+ * інакше довелося б дописувати в чотири місця, і одне з них забулося б.
+ */
+export const isDynamicWindow = (id: WindowId) => id.includes(":");
 
 /**
  * Опис будь-якого вікна, у тому числі динамічного. Підпис словникового вікна —
@@ -76,6 +110,10 @@ export function windowMeta(id: WindowId, label?: string): WindowMeta {
       icon: "🔖",
       file: `waitwhat://slang/${key.replace(/\s+/g, "-")}`,
     };
+  }
+  const meme = memeKeyOf(id);
+  if (meme !== null) {
+    return { label: label ?? "мем", icon: "🖼", file: `waitwhat://meme/${meme}` };
   }
   return (
     WINDOW_META[id as FixedWindowId] ?? {
@@ -124,6 +162,10 @@ export default function DesktopWindow({
     py: number;
     ox: number;
     oy: number;
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
   } | null>(null);
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -133,20 +175,39 @@ export default function DesktopWindow({
     // Кнопки живуть у самому титульному рядку: клік по них не тягне вікно
     if ((event.target as HTMLElement).closest("button")) return;
 
+    const win = event.currentTarget.closest(".app-window");
+    const rect = (win ?? event.currentTarget).getBoundingClientRect();
+
+    // Межі МІРЯЮТЬСЯ, а не задаються числом: топбар має `top: 24px` і висоту
+    // 82px, але медіазапити це міняють, і зашитий літерал розійшовся б із
+    // версткою мовчки. Таскбар так само: він фіксований і лежить вище вікон.
+    const bar = document.querySelector(".topbar")?.getBoundingClientRect();
+    const tray = document.querySelector(".taskbar")?.getBoundingClientRect();
+    const limitTop = (bar ? bar.bottom : 0) + GAP;
+    const limitBottom = (tray ? tray.top : window.innerHeight) - TITLEBAR_KEEP;
+
+    // Обмежуємо зміщення, а не координати: `state.x/y` — це зсув поверх
+    // позиції з CSS, тож переводимо дозволений діапазон екранних координат
+    // у діапазон зсуву для цього конкретного вікна.
     from.current = {
       px: event.clientX,
       py: event.clientY,
       ox: state.x,
       oy: state.y,
+      minX: state.x + (SIDE_KEEP - rect.right),
+      maxX: state.x + (window.innerWidth - SIDE_KEEP - rect.left),
+      minY: state.y + (limitTop - rect.top),
+      maxY: state.y + (limitBottom - rect.top),
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    if (!from.current) return;
+    const at = from.current;
+    if (!at) return;
     onMove(
-      from.current.ox + event.clientX - from.current.px,
-      from.current.oy + event.clientY - from.current.py,
+      clamp(at.ox + event.clientX - at.px, at.minX, at.maxX),
+      clamp(at.oy + event.clientY - at.py, at.minY, at.maxY),
     );
   };
 

@@ -210,7 +210,8 @@ export function SlangBookBody({
         entry.key.includes(needle) ||
         entry.term.toLowerCase().includes(needle) ||
         entry.short.toLowerCase().includes(needle) ||
-        entry.aka.some((form) => form.toLowerCase().includes(needle)),
+        entry.aka.some((form) => form.toLowerCase().includes(needle)) ||
+        entry.ukEquivalents.some((word) => word.toLowerCase().includes(needle)),
     );
   }, [all, query]);
 
