@@ -250,7 +250,7 @@ export function AgentDesk({ agentId }: { agentId: string }) {
                 <div className="date">
                   Звернення від {shortTime(conversation.createdAt)}
                 </div>
-                <MessageList messages={messages} />
+                <MessageList messages={messages} showDeviation />
                 {error ? (
                   <div className="row">
                     <div className="mini system">·</div>

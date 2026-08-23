@@ -209,6 +209,17 @@ main.chat {
 }
 .sources .nogr { color: #a2453f; font-weight: 700; }
 
+/* Відхилення бота від рекомендації правил. Тільки на столі сапорта — у чаті
+   користувача цього блоку немає взагалі, бо внутрішній «план» не його справа.
+   Тон стриманий, не червоний: відхилення — це штатна робота моделі, а не збій,
+   і фарбувати його як помилку означало б навчити сапорта його боятися. */
+.deviation {
+  margin-top: 7px; padding: 6px 8px; border-radius: 8px;
+  border-left: 2px solid #b8a5d8; background: #f6f2fb;
+  font-size: 11px; line-height: 1.45; color: var(--muted);
+}
+.deviation em { display: block; margin-top: 2px; color: var(--vd); font-style: normal; }
+
 /* ---------- картка привітання й прощання ---------- */
 
 .card {

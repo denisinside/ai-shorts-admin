@@ -155,6 +155,15 @@ export type PairlyMessage = {
   /** Джерела під відповіддю бота: `KB-SUB-003` тощо. */
   articleIds: string[];
   grounded: boolean | null;
+  /**
+   * Дію обирає модель, код лишає підлоги. Ці три поля показують, де вони не
+   * згодні: що радив порадник, чому модель вирішила інакше й хто виграв.
+   * `override`: floor_held | escalated_up | escalated_down |
+   * rejected_silent_override | compose_failed.
+   */
+  recommendedAction: string | null;
+  deviationReason: string | null;
+  override: string | null;
   /** Хто з тех. сапорту написав хід. Тільки для `role='agent'`. */
   agentId: string | null;
   latencyMs: number | null;

@@ -49,7 +49,8 @@ const CONVERSATION_COLUMNS =
 
 const MESSAGE_COLUMNS =
   "id, conversation_id, role, content, intents, sub_intent, sentiment, action," +
-  " escalate, escalation_reason, article_ids, grounded, agent_id, latency_ms, created_at";
+  " escalate, escalation_reason, article_ids, grounded, agent_id, latency_ms," +
+  " recommended_action, deviation_reason, override, created_at";
 
 /** Скільки ходів віддаємо в інтерфейс. Транскрипт демо-розмови коротший. */
 const MESSAGE_LIMIT = 200;
@@ -87,6 +88,9 @@ type MessageRow = {
   escalation_reason: string | null;
   article_ids: unknown;
   grounded: boolean | null;
+  recommended_action: string | null;
+  deviation_reason: string | null;
+  override: string | null;
   agent_id: string | null;
   latency_ms: number | null;
   created_at: string;
@@ -136,6 +140,9 @@ export function toPairlyMessage(row: MessageRow): PairlyMessage {
     escalationReason: row.escalation_reason,
     articleIds: toStringArray(row.article_ids),
     grounded: row.grounded,
+    recommendedAction: row.recommended_action,
+    deviationReason: row.deviation_reason,
+    override: row.override,
     agentId: row.agent_id,
     latencyMs: row.latency_ms,
   };
@@ -355,6 +362,11 @@ export async function insertBotTurn(opts: {
       // `grounded` лишається `null`, коли конверт не приїхав: `false` означало
       // б «KB не дала ґрунту», а ми просто не знаємо.
       grounded: envelope ? envelope.grounded : null,
+      // Рішення моделі проти поради коду. `override` каже, хто виграв, і саме
+      // його рахує `pairly/test_agent.py` окремим кошиком.
+      recommended_action: envelope?.recommended_action ?? null,
+      deviation_reason: envelope?.deviation_reason ?? null,
+      override: envelope?.override ?? null,
       dify_message_id: opts.difyMessageId,
       latency_ms: opts.latencyMs,
     })

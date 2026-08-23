@@ -357,8 +357,35 @@ a:focus-visible {
   flex-direction: column;
 }
 
+/* Розгорнуте вікно — це майже весь стіл, і темна смуга титульного рядка лягає
+   впоперек читання: у звичайному вікні вона окреслює його межу, а тут окреслює
+   екран. Тому у цьому стані фон прибираємо зовсім.
+   Разом із фоном мусить перевернутися контраст: під смугою тепер світле скло
+   самого вікна, і білий текст із темною тінню на ньому просто зникає. */
 .app-window.is-maximized > .titlebar {
   flex: none;
+  background: transparent;
+  color: var(--ink);
+  border-bottom-color: rgba(6, 40, 58, 0.12);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7);
+}
+
+.app-window.is-maximized > .titlebar .window-controls button {
+  color: var(--ink);
+}
+
+/* Підсвітка наведення теж була розрахована на темне тло */
+.app-window.is-maximized > .titlebar .window-controls button:hover {
+  background: rgba(6, 40, 58, 0.1);
+}
+
+/* Закриття лишається червоним — це єдина кнопка, колір якої щось означає */
+.app-window.is-maximized
+  > .titlebar
+  .window-controls
+  button:last-child:hover {
+  background: #ee5b66;
+  color: #fff;
 }
 
 /* Тіло вікна — єдиний елемент після титульного рядка, тому саме воно й
